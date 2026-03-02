@@ -20,26 +20,30 @@
     </div>
 
     <div class="grid">
+      <!-- Left: actions -->
       <div class="card">
         <h2>Welcome 👋</h2>
         <p class="sub" id="ownerLine">Loading…</p>
 
         <div class="row" style="margin-top:14px;">
-          <button class="btn primary" id="addPickupBtn">➕ Add Pickup</button>
-          <button class="btn" id="viewLocalBtn">View Saved Pickups</button>
-          <button class="btn" id="logoutBtn">Logout</button>
+          <button class="btn primary" type="button" onclick="goAddPickup()">➕ Add Pickup</button>
+          <button class="btn" type="button" onclick="refreshTable()">↻ Refresh</button>
+          <button class="btn" type="button" onclick="logout()">Logout</button>
         </div>
 
         <div class="status" id="dashStatus" style="margin-top:14px;">
-          Tip: Click “Add Pickup” to create a reminder entry.
+          Your pickups appear in the table on the right.
         </div>
       </div>
 
+      <!-- Right: table -->
       <div class="card">
-        <h2>Saved Pickups (local for now)</h2>
-        <p class="sub">Until we wire pickups to SQLite + reminders, we’re storing them in your browser.</p>
+        <h2>Pickups</h2>
+        <p class="sub">These are saved for this owner (MVP local storage).</p>
 
-        <div class="status" id="pickupsBox">No pickups loaded yet.</div>
+        <div id="tableWrap" class="status" style="padding:0; overflow:auto;">
+          Loading…
+        </div>
       </div>
     </div>
   </div>
@@ -55,46 +59,121 @@
       return { ownerId, loginId };
     }
 
-    function renderPickups(ownerId) {
-      const key = `mlr_pickups_owner_${ownerId}`;
-      const list = JSON.parse(localStorage.getItem(key) || "[]");
-      const box = document.getElementById("pickupsBox");
-
-      if (!list.length) {
-        box.className = "status";
-        box.textContent = "No pickups saved yet.";
-        return;
-      }
-
-      box.className = "status";
-      box.innerHTML = list
-        .slice()
-        .reverse()
-        .map(p => {
-          const due = p.dueDate ? new Date(p.dueDate).toDateString() : "N/A";
-          return `<div style="padding:10px 0; border-bottom:1px solid rgba(15,23,42,.10);">
-            <b>${p.name}</b> — ${p.phone}<br/>
-            <span style="opacity:.85;">Due: ${due}</span>
-          </div>`;
-        })
-        .join("");
+    function goAddPickup() {
+      window.location.href = "/add-pickup.html";
     }
 
-    document.getElementById("addPickupBtn").addEventListener("click", () => {
-      window.location.href = "/add-pickup.html";
-    });
-
-    document.getElementById("logoutBtn").addEventListener("click", () => {
+    function logout() {
       localStorage.removeItem("ownerId");
       localStorage.removeItem("loginId");
       window.location.href = "/login.html";
-    });
+    }
 
-    document.getElementById("viewLocalBtn").addEventListener("click", () => {
+    function getPickups(ownerId) {
+      const key = `mlr_pickups_owner_${ownerId}`;
+      return JSON.parse(localStorage.getItem(key) || "[]");
+    }
+
+    function setPickups(ownerId, list) {
+      const key = `mlr_pickups_owner_${ownerId}`;
+      localStorage.setItem(key, JSON.stringify(list));
+    }
+
+    function formatDate(isoOrDate) {
+      try {
+        const d = new Date(isoOrDate);
+        if (Number.isNaN(d.getTime())) return String(isoOrDate || "");
+        return d.toDateString();
+      } catch {
+        return String(isoOrDate || "");
+      }
+    }
+
+    function deletePickup(idx) {
       const info = requireOwner();
       if (!info) return;
-      renderPickups(info.ownerId);
-    });
+
+      const list = getPickups(info.ownerId);
+      if (idx < 0 || idx >= list.length) return;
+
+      // list is stored oldest->newest; we display newest->oldest,
+      // so idx refers to the displayed list. Convert it.
+      const display = list.slice().reverse();
+      display.splice(idx, 1);
+      const updated = display.slice().reverse();
+
+      setPickups(info.ownerId, updated);
+      renderTable(updated);
+    }
+
+    function renderTable(list) {
+      const wrap = document.getElementById("tableWrap");
+
+      if (!list.length) {
+        wrap.className = "status";
+        wrap.style.padding = "14px 12px";
+        wrap.innerHTML = "No pickups yet. Click <b>Add Pickup</b> to create your first one.";
+        return;
+      }
+
+      const display = list.slice().reverse();
+
+      const rows = display.map((p, i) => `
+        <tr>
+          <td style="padding:12px; border-bottom:1px solid rgba(15,23,42,.10);">
+            <b>${escapeHtml(p.name || "")}</b><br>
+            <span style="opacity:.85;">${escapeHtml(p.phone || "")}</span>
+          </td>
+          <td style="padding:12px; border-bottom:1px solid rgba(15,23,42,.10);">
+            ${escapeHtml(formatDate(p.dueDate))}
+          </td>
+          <td style="padding:12px; border-bottom:1px solid rgba(15,23,42,.10);">
+            <span style="opacity:.85;">${escapeHtml(formatDate(p.createdAt))}</span>
+          </td>
+          <td style="padding:12px; border-bottom:1px solid rgba(15,23,42,.10); text-align:right;">
+            <button class="btn" type="button" onclick="deletePickup(${i})">Delete</button>
+          </td>
+        </tr>
+      `).join("");
+
+      wrap.className = "";
+      wrap.style.padding = "0";
+      wrap.innerHTML = `
+        <table style="width:100%; border-collapse:collapse;">
+          <thead>
+            <tr>
+              <th style="text-align:left; padding:12px; border-bottom:1px solid rgba(15,23,42,.12);">Customer</th>
+              <th style="text-align:left; padding:12px; border-bottom:1px solid rgba(15,23,42,.12);">Due</th>
+              <th style="text-align:left; padding:12px; border-bottom:1px solid rgba(15,23,42,.12);">Created</th>
+              <th style="text-align:right; padding:12px; border-bottom:1px solid rgba(15,23,42,.12);">Action</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      `;
+    }
+
+    function escapeHtml(str) {
+      return String(str)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    function refreshTable() {
+      const info = requireOwner();
+      if (!info) return;
+
+      const list = getPickups(info.ownerId);
+      renderTable(list);
+
+      const ds = document.getElementById("dashStatus");
+      ds.className = "status ok";
+      ds.innerHTML = `✅ Loaded <b>${list.length}</b> pickup(s).`;
+      setTimeout(() => { ds.className = "status"; }, 1200);
+    }
 
     document.addEventListener("DOMContentLoaded", () => {
       const info = requireOwner();
@@ -103,8 +182,7 @@
       document.getElementById("ownerLine").innerHTML =
         `Logged in as <b>${info.loginId}</b> (Owner ID: <b>${info.ownerId}</b>)`;
 
-      // Auto-load pickups on page load
-      renderPickups(info.ownerId);
+      refreshTable();
     });
   </script>
 </body>
