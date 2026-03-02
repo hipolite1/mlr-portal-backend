@@ -40,7 +40,7 @@
         <input id="createPassword" type="password" placeholder="At least 6 characters" />
 
         <div class="row" style="margin-top:12px;">
-          <button class="btn primary" id="createBtn">Create Account</button>
+          <button class="btn primary" id="createBtn" type="button">Create Account</button>
         </div>
 
         <div class="status" id="createStatus"></div>
@@ -62,7 +62,7 @@
         <input id="loginPasswordInput" type="password" placeholder="Your password" />
 
         <div class="row" style="margin-top:12px;">
-          <button class="btn primary" id="loginBtn">Continue</button>
+          <button class="btn primary" id="loginBtn" type="button">Continue</button>
           <button class="btn" id="clearBtn" type="button">Clear</button>
         </div>
 
@@ -78,7 +78,7 @@
     }
 
     function goDashboard() {
-      window.location.href = "/dashboard.html"; // ✅ FIX: no choose-plan redirect anymore
+      window.location.href = "/dashboard.html";
     }
 
     async function createAccount() {
@@ -86,13 +86,16 @@
       const password = document.getElementById("createPassword").value.trim();
       const status = document.getElementById("createStatus");
 
+      status.className = "status";
       status.textContent = "Creating...";
 
       if (!phone || !password) {
+        status.className = "status err";
         status.textContent = "Please enter phone and password.";
         return;
       }
       if (password.length < 6) {
+        status.className = "status err";
         status.textContent = "Password must be at least 6 characters.";
         return;
       }
@@ -112,15 +115,30 @@
           return;
         }
 
+        // Store session
         localStorage.setItem("ownerId", String(data.ownerId));
         localStorage.setItem("loginId", String(data.loginId));
 
-        status.className = "status ok";
-        status.innerHTML = `✅ Account created.<br>
-          <b>Login ID:</b> ${data.loginId}<br>
-          <span style="opacity:.85;">Redirecting to dashboard…</span>`;
+        // Autofill login box so user can login immediately
+        document.getElementById("loginIdInput").value = data.loginId;
+        document.getElementById("loginPasswordInput").value = password;
 
-        setTimeout(goDashboard, 600);
+        // ✅ IMPORTANT: Do NOT auto-redirect (gives time to copy)
+        status.className = "status ok";
+        status.innerHTML = `
+          ✅ Account created successfully.<br><br>
+          <b>Login ID:</b> <span style="user-select:all;">${data.loginId}</span><br>
+          <b>Password:</b> <span style="user-select:all;">${password}</span><br><br>
+          <span style="opacity:.9;">Copy your Login ID. Then click Continue.</span><br><br>
+          <button class="btn primary" id="goDashBtn" type="button">Continue to Dashboard</button>
+        `;
+
+        // Attach click handler after HTML is inserted
+        setTimeout(() => {
+          const btn = document.getElementById("goDashBtn");
+          if (btn) btn.addEventListener("click", goDashboard);
+        }, 0);
+
       } catch (e) {
         status.className = "status err";
         status.textContent = `Create failed: ${e.message}`;
@@ -161,7 +179,7 @@
 
         status.className = "status ok";
         status.textContent = "✅ Logged in. Redirecting to dashboard...";
-        setTimeout(goDashboard, 450);
+        setTimeout(goDashboard, 350);
       } catch (e) {
         status.className = "status err";
         status.textContent = `Login failed: ${e.message}`;
@@ -173,8 +191,9 @@
       localStorage.removeItem("loginId");
       document.getElementById("loginIdInput").value = "";
       document.getElementById("loginPasswordInput").value = "";
-      document.getElementById("loginStatus").className = "status";
-      document.getElementById("loginStatus").textContent = "Cleared.";
+      const s = document.getElementById("loginStatus");
+      s.className = "status";
+      s.textContent = "Cleared.";
     }
 
     document.getElementById("createBtn").addEventListener("click", createAccount);
