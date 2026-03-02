@@ -1,5 +1,4 @@
 // index.js — Render-friendly version using better-sqlite3
-
 require("dotenv").config();
 
 const express = require("express");
@@ -16,7 +15,9 @@ app.use(express.json());
 // ---------------------------
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 if (!STRIPE_SECRET_KEY) {
-  console.error("\n❌ STRIPE_SECRET_KEY missing in environment (.env locally / Render env vars)\n");
+  console.error(
+    "\n❌ STRIPE_SECRET_KEY missing in environment (.env locally / Render env vars)\n"
+  );
   process.exit(1);
 }
 const stripe = new Stripe(STRIPE_SECRET_KEY);
@@ -69,6 +70,14 @@ function verifyPassword(password, stored) {
 // ---------------------------
 // Static frontend
 // ---------------------------
+// (Optional but helpful) avoid stale cached HTML/CSS on deploy
+app.use((req, res, next) => {
+  if (req.method === "GET" && /\.(html|css|js)$/.test(req.path)) {
+    res.setHeader("Cache-Control", "no-store");
+  }
+  next();
+});
+
 app.use(express.static(path.join(__dirname, "frontend")));
 
 // =========================
@@ -96,6 +105,15 @@ app.get("/login.html", (req, res) => {
   res.sendFile(path.join(__dirname, "frontend", "login.html"));
 });
 
+// ✅ Step 3: New pages for post-login funnel
+app.get("/dashboard.html", (req, res) => {
+  res.sendFile(path.join(__dirname, "frontend", "dashboard.html"));
+});
+
+app.get("/add-pickup.html", (req, res) => {
+  res.sendFile(path.join(__dirname, "frontend", "add-pickup.html"));
+});
+
 // =====================================================
 // ✅ JSON API: CREATE ACCOUNT
 // =====================================================
@@ -105,10 +123,14 @@ app.post("/api/create-account", async (req, res) => {
     const password = String(req.body.password || "").trim();
 
     if (!phone || !password) {
-      return res.status(400).json({ ok: false, error: "phone and password are required" });
+      return res
+        .status(400)
+        .json({ ok: false, error: "phone and password are required" });
     }
     if (password.length < 6) {
-      return res.status(400).json({ ok: false, error: "password must be at least 6 characters" });
+      return res
+        .status(400)
+        .json({ ok: false, error: "password must be at least 6 characters" });
     }
 
     const uniq = Date.now();
@@ -126,15 +148,18 @@ app.post("/api/create-account", async (req, res) => {
       return res.json({
         ok: true,
         ownerId: Number(info.lastInsertRowid),
-        loginId
+        loginId,
       });
     } catch (err) {
-      // common: UNIQUE constraint failed: users.phone or users.loginId
-      return res.status(400).json({ ok: false, error: err.message || "Create failed" });
+      return res
+        .status(400)
+        .json({ ok: false, error: err.message || "Create failed" });
     }
   } catch (e) {
     console.error("Create account error:", e?.message || e);
-    return res.status(500).json({ ok: false, error: "Server error creating account" });
+    return res
+      .status(500)
+      .json({ ok: false, error: "Server error creating account" });
   }
 });
 
@@ -147,11 +172,15 @@ app.post("/api/login", async (req, res) => {
     const password = String(req.body.password || "").trim();
 
     if (!loginId || !password) {
-      return res.status(400).json({ ok: false, error: "loginId and password are required" });
+      return res
+        .status(400)
+        .json({ ok: false, error: "loginId and password are required" });
     }
 
     const row = db
-      .prepare(`SELECT id, loginId, password, subscription_status FROM users WHERE loginId = ?`)
+      .prepare(
+        `SELECT id, loginId, password, subscription_status FROM users WHERE loginId = ?`
+      )
       .get(loginId);
 
     if (!row) return res.status(400).json({ ok: false, error: "Invalid login" });
@@ -163,7 +192,7 @@ app.post("/api/login", async (req, res) => {
       ok: true,
       ownerId: row.id,
       loginId: row.loginId,
-      subscription_status: row.subscription_status
+      subscription_status: row.subscription_status,
     });
   } catch (e) {
     console.error("Login error:", e?.message || e);
@@ -201,7 +230,7 @@ app.post("/stripe/create-checkout-session", async (req, res) => {
       success_url: `${process.env.APP_BASE_URL}/welcome.html?success=1`,
       cancel_url: `${process.env.APP_BASE_URL}/choose-plan.html?canceled=1`,
       client_reference_id: String(ownerId),
-      metadata: { owner_id: String(ownerId), plan }
+      metadata: { owner_id: String(ownerId), plan },
     });
 
     res.json({ url: session.url });
@@ -232,9 +261,7 @@ app.get("/stripe/checkout", (req, res) => {
     }
 
     const baseUrl =
-      process.env.APP_BASE_URL ||
-      process.env.PUBLIC_URL ||
-      "http://localhost:3000";
+      process.env.APP_BASE_URL || process.env.PUBLIC_URL || "http://localhost:3000";
 
     // Auto-create owner row (unique)
     const uniq = Date.now();
@@ -244,18 +271,21 @@ app.get("/stripe/checkout", (req, res) => {
 
     let ownerId;
     try {
-      const info = db.prepare(`
-        INSERT INTO users (loginId, password, phone, subscription_status)
-        VALUES (?, ?, ?, 'inactive')
-      `).run(autoLoginId, autoPass, autoPhone);
+      const info = db
+        .prepare(
+          `INSERT INTO users (loginId, password, phone, subscription_status)
+           VALUES (?, ?, ?, 'inactive')`
+        )
+        .run(autoLoginId, autoPass, autoPhone);
 
       ownerId = Number(info.lastInsertRowid);
     } catch (err) {
       console.error("Owner create error:", err?.message || err);
-      return res.status(500).send(`Failed to create owner: ${err?.message || "unknown"}`);
+      return res
+        .status(500)
+        .send(`Failed to create owner: ${err?.message || "unknown"}`);
     }
 
-    // Stripe session create (promise-based to avoid crashing)
     stripe.checkout.sessions
       .create({
         mode: "subscription",
@@ -263,12 +293,14 @@ app.get("/stripe/checkout", (req, res) => {
         success_url: `${baseUrl}/login.html?paid=1&owner_id=${ownerId}`,
         cancel_url: `${baseUrl}/choose-plan.html?canceled=1`,
         client_reference_id: String(ownerId),
-        metadata: { owner_id: String(ownerId), plan: planKey }
+        metadata: { owner_id: String(ownerId), plan: planKey },
       })
       .then((session) => res.redirect(session.url))
       .catch((e) => {
         console.error("Stripe session create failed:", e?.message || e);
-        res.status(500).send(`Stripe checkout session failed: ${e?.message || "unknown error"}`);
+        res
+          .status(500)
+          .send(`Stripe checkout session failed: ${e?.message || "unknown error"}`);
       });
   } catch (e) {
     console.error("checkout route error:", e?.message || e);
