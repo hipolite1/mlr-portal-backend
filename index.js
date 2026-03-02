@@ -68,9 +68,14 @@ function verifyPassword(password, stored) {
 }
 
 // ---------------------------
-// Static frontend
+// Prevent stale HTML/CSS/JS after deploy (helps Render/CDN + browser cache)
 // ---------------------------
-app.use(express.static(path.join(__dirname, "frontend")));
+app.use((req, res, next) => {
+  if (req.method === "GET" && /\.(html|css|js)$/.test(req.path)) {
+    res.setHeader("Cache-Control", "no-store");
+  }
+  next();
+});
 
 // =========================
 // HEALTH CHECK
@@ -78,13 +83,16 @@ app.use(express.static(path.join(__dirname, "frontend")));
 app.get("/ping", (req, res) => res.status(200).send("ok"));
 
 // ---------------------------
-// Root route
+// Force-serve key pages FIRST (before express.static)
 // ---------------------------
 app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "frontend", "login.html"));
 });
 
-// Force-serve key pages (prevents 404)
+app.get("/login.html", (req, res) => {
+  res.sendFile(path.join(__dirname, "frontend", "login.html"));
+});
+
 app.get("/welcome.html", (req, res) => {
   res.sendFile(path.join(__dirname, "frontend", "welcome.html"));
 });
@@ -93,11 +101,6 @@ app.get("/choose-plan.html", (req, res) => {
   res.sendFile(path.join(__dirname, "frontend", "choose-plan.html"));
 });
 
-app.get("/login.html", (req, res) => {
-  res.sendFile(path.join(__dirname, "frontend", "login.html"));
-});
-
-// ✅ NEW: Force-serve dashboard + add pickup pages (prevents weird fallback)
 app.get("/dashboard.html", (req, res) => {
   res.sendFile(path.join(__dirname, "frontend", "dashboard.html"));
 });
@@ -105,6 +108,11 @@ app.get("/dashboard.html", (req, res) => {
 app.get("/add-pickup.html", (req, res) => {
   res.sendFile(path.join(__dirname, "frontend", "add-pickup.html"));
 });
+
+// ---------------------------
+// Static frontend (CSS, images, etc.) — AFTER forced routes
+// ---------------------------
+app.use(express.static(path.join(__dirname, "frontend")));
 
 // =====================================================
 // ✅ JSON API: CREATE ACCOUNT
@@ -253,7 +261,9 @@ app.get("/stripe/checkout", (req, res) => {
     }
 
     const baseUrl =
-      process.env.APP_BASE_URL || process.env.PUBLIC_URL || "http://localhost:3000";
+      process.env.APP_BASE_URL ||
+      process.env.PUBLIC_URL ||
+      "http://localhost:3000";
 
     const uniq = Date.now();
     const autoLoginId = `AUTO${uniq}`;
@@ -272,7 +282,9 @@ app.get("/stripe/checkout", (req, res) => {
       ownerId = Number(info.lastInsertRowid);
     } catch (err) {
       console.error("Owner create error:", err?.message || err);
-      return res.status(500).send(`Failed to create owner: ${err?.message || "unknown"}`);
+      return res
+        .status(500)
+        .send(`Failed to create owner: ${err?.message || "unknown"}`);
     }
 
     stripe.checkout.sessions
@@ -287,7 +299,9 @@ app.get("/stripe/checkout", (req, res) => {
       .then((session) => res.redirect(session.url))
       .catch((e) => {
         console.error("Stripe session create failed:", e?.message || e);
-        res.status(500).send(`Stripe checkout session failed: ${e?.message || "unknown error"}`);
+        res
+          .status(500)
+          .send(`Stripe checkout session failed: ${e?.message || "unknown error"}`);
       });
   } catch (e) {
     console.error("checkout route error:", e?.message || e);
