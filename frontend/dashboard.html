@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>MLR - Dashboard</title>
-  <link rel="stylesheet" href="/style.css" />
+  <link rel="stylesheet" href="/style.css?v=3" />
 </head>
 <body>
   <div class="container">
@@ -13,14 +13,13 @@
         <div class="logo"></div>
         <div>
           <h1>MyLaundryReminder</h1>
-          <p>Subscriber Dashboard</p>
+          <p>Subscriber Dashboard <span style="opacity:.65;">(v3)</span></p>
         </div>
       </div>
       <span class="badge">Portal</span>
     </div>
 
     <div class="grid">
-      <!-- Left: actions -->
       <div class="card">
         <h2>Welcome 👋</h2>
         <p class="sub" id="ownerLine">Loading…</p>
@@ -32,16 +31,19 @@
         </div>
 
         <div class="status" id="dashStatus" style="margin-top:14px;">
-          Your pickups appear in the table on the right.
+          If your pickups don’t show, it’s usually domain mismatch (www vs portal) or cache.
+        </div>
+
+        <div class="status" id="debugBox" style="margin-top:12px;">
+          Debug: loading…
         </div>
       </div>
 
-      <!-- Right: table -->
       <div class="card">
         <h2>Pickups</h2>
-        <p class="sub">These are saved for this owner (MVP local storage).</p>
+        <p class="sub">Saved pickups for this owner (MVP local storage).</p>
 
-        <div id="tableWrap" class="status" style="padding:0; overflow:auto;">
+        <div id="tableWrap" class="status" style="padding:14px 12px; overflow:auto;">
           Loading…
         </div>
       </div>
@@ -60,7 +62,7 @@
     }
 
     function goAddPickup() {
-      window.location.href = "/add-pickup.html";
+      window.location.href = "/add-pickup.html?v=3";
     }
 
     function logout() {
@@ -79,31 +81,38 @@
       localStorage.setItem(key, JSON.stringify(list));
     }
 
-    function formatDate(isoOrDate) {
-      try {
-        const d = new Date(isoOrDate);
-        if (Number.isNaN(d.getTime())) return String(isoOrDate || "");
-        return d.toDateString();
-      } catch {
-        return String(isoOrDate || "");
-      }
+    function escapeHtml(str) {
+      return String(str)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
     }
 
-    function deletePickup(idx) {
+    function formatDate(v) {
+      try {
+        const d = new Date(v);
+        if (Number.isNaN(d.getTime())) return String(v || "");
+        return d.toDateString();
+      } catch { return String(v || ""); }
+    }
+
+    function deletePickup(displayIndex) {
       const info = requireOwner();
       if (!info) return;
 
-      const list = getPickups(info.ownerId);
-      if (idx < 0 || idx >= list.length) return;
+      const original = getPickups(info.ownerId);        // oldest -> newest
+      const display = original.slice().reverse();       // newest -> oldest
 
-      // list is stored oldest->newest; we display newest->oldest,
-      // so idx refers to the displayed list. Convert it.
-      const display = list.slice().reverse();
-      display.splice(idx, 1);
+      if (displayIndex < 0 || displayIndex >= display.length) return;
+
+      display.splice(displayIndex, 1);
+
       const updated = display.slice().reverse();
-
       setPickups(info.ownerId, updated);
       renderTable(updated);
+      refreshDebug(updated.length);
     }
 
     function renderTable(list) {
@@ -153,13 +162,20 @@
       `;
     }
 
-    function escapeHtml(str) {
-      return String(str)
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&#039;");
+    function refreshDebug(count) {
+      const info = requireOwner();
+      if (!info) return;
+
+      const key = `mlr_pickups_owner_${info.ownerId}`;
+      const raw = localStorage.getItem(key);
+
+      document.getElementById("debugBox").innerHTML =
+        `Debug:<br>
+         Domain: <b>${location.host}</b><br>
+         OwnerId: <b>${info.ownerId}</b><br>
+         Storage key: <b>${key}</b><br>
+         Count: <b>${count}</b><br>
+         Raw (first 120 chars): <span style="opacity:.75;">${escapeHtml(String(raw || "").slice(0,120))}</span>`;
     }
 
     function refreshTable() {
@@ -168,6 +184,7 @@
 
       const list = getPickups(info.ownerId);
       renderTable(list);
+      refreshDebug(list.length);
 
       const ds = document.getElementById("dashStatus");
       ds.className = "status ok";
