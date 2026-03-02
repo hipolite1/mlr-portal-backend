@@ -1,200 +1,65 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>MLR - Dashboard</title>
-  <link rel="stylesheet" href="/style.css?v=5" />
-</head>
-<body>
-  <div class="container">
-    <div class="header">
-      <div class="brand">
-        <div class="logo"></div>
-        <div>
-          <h1>MyLaundryReminder</h1>
-          <p>Subscriber Dashboard</p>
-        </div>
-      </div>
-      <span class="badge">Portal</span>
-    </div>
+<script>
+function getSession() {
+  return {
+    ownerId: localStorage.getItem("ownerId"),
+    loginId: localStorage.getItem("loginId")
+  };
+}
 
-    <div class="grid">
-      <div class="card">
-        <h2>Account</h2>
-        <p class="sub" id="ownerLine">Loading…</p>
+function getPickups(ownerId) {
+  const key = `mlr_pickups_owner_${ownerId}`;
+  return JSON.parse(localStorage.getItem(key) || "[]");
+}
 
-        <div class="row" style="margin-top:14px;">
-          <button class="btn primary" type="button" onclick="goAddPickup()">➕ Add Pickup</button>
-          <button class="btn" type="button" onclick="refreshTable()">↻ Refresh</button>
-          <button class="btn" type="button" onclick="logout()">Logout</button>
-        </div>
+function renderTable() {
+  const { ownerId, loginId } = getSession();
+  const wrap = document.getElementById("tableWrap");
+  const ownerLine = document.getElementById("ownerLine");
 
-        <div class="status" id="dashStatus" style="margin-top:14px;">
-          Loading…
-        </div>
-      </div>
+  if (!ownerId) {
+    wrap.innerHTML = "Not logged in.";
+    return;
+  }
 
-      <div class="card">
-        <h2>Pickups</h2>
-        <p class="sub">Saved pickups for this owner (MVP local storage).</p>
+  ownerLine.innerHTML =
+    `Logged in as <b>${loginId}</b> (Owner ID: <b>${ownerId}</b>)`;
 
-        <div id="tableWrap" class="status" style="padding:14px 12px; overflow:auto;">
-          Loading…
-        </div>
-      </div>
-    </div>
-  </div>
+  const list = getPickups(ownerId);
 
-  <script>
-    function getSession() {
-      const ownerId = localStorage.getItem("ownerId");
-      const loginId = localStorage.getItem("loginId");
-      return { ownerId, loginId };
-    }
+  if (!list.length) {
+    wrap.innerHTML = "No pickups yet.";
+    return;
+  }
 
-    function requireOwnerIdOrShowLogin() {
-      const { ownerId, loginId } = getSession();
-      const dash = document.getElementById("dashStatus");
-      const wrap = document.getElementById("tableWrap");
-      const ownerLine = document.getElementById("ownerLine");
+  const rows = list.map((p, i) => `
+    <tr>
+      <td>${p.name}</td>
+      <td>${p.phone}</td>
+      <td>${p.dueDate}</td>
+      <td><button onclick="deletePickup(${i})">Delete</button></td>
+    </tr>
+  `).join("");
 
-      // If no ownerId, user is not logged in at all
-      if (!ownerId) {
-        ownerLine.innerHTML = `Not logged in.`;
-        dash.className = "status err";
-        dash.innerHTML = `⚠️ Session missing. Please login to access your dashboard.<br><br>
-          <button class="btn primary" type="button" onclick="goLogin()">Go to Login</button>`;
-        wrap.className = "status";
-        wrap.style.padding = "14px 12px";
-        wrap.innerHTML = `No session found.`;
-        return null;
-      }
+  wrap.innerHTML = `
+    <table style="width:100%; border-collapse:collapse;">
+      <tr>
+        <th>Name</th>
+        <th>Phone</th>
+        <th>Due</th>
+        <th>Action</th>
+      </tr>
+      ${rows}
+    </table>
+  `;
+}
 
-      // If ownerId exists but loginId missing (common after Stripe before account creation)
-      ownerLine.innerHTML =
-        `Owner ID: <b>${ownerId}</b>` + (loginId ? ` — Login ID: <b>${loginId}</b>` : ` — <span style="opacity:.8;">(Login ID not set yet)</span>`);
+function deletePickup(i) {
+  const { ownerId } = getSession();
+  const list = getPickups(ownerId);
+  list.splice(i, 1);
+  localStorage.setItem(`mlr_pickups_owner_${ownerId}`, JSON.stringify(list));
+  renderTable();
+}
 
-      return { ownerId, loginId };
-    }
-
-    function goLogin() {
-      // Cache-bust to force fresh page
-      window.location.href = "/login.html?ts=" + Date.now();
-    }
-
-    function goAddPickup() {
-      const s = requireOwnerIdOrShowLogin();
-      if (!s) return;
-      window.location.href = "/add-pickup.html?v=5";
-    }
-
-    function logout() {
-      localStorage.removeItem("ownerId");
-      localStorage.removeItem("loginId");
-      goLogin();
-    }
-
-    function getPickups(ownerId) {
-      const key = `mlr_pickups_owner_${ownerId}`;
-      return JSON.parse(localStorage.getItem(key) || "[]");
-    }
-
-    function setPickups(ownerId, list) {
-      const key = `mlr_pickups_owner_${ownerId}`;
-      localStorage.setItem(key, JSON.stringify(list));
-    }
-
-    function escapeHtml(str) {
-      return String(str)
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&#039;");
-    }
-
-    function formatDate(v) {
-      try {
-        const d = new Date(v);
-        if (Number.isNaN(d.getTime())) return String(v || "");
-        return d.toDateString();
-      } catch { return String(v || ""); }
-    }
-
-    function deletePickup(displayIndex) {
-      const s = requireOwnerIdOrShowLogin();
-      if (!s) return;
-
-      const original = getPickups(s.ownerId);   // oldest -> newest
-      const display = original.slice().reverse();// newest -> oldest
-      if (displayIndex < 0 || displayIndex >= display.length) return;
-
-      display.splice(displayIndex, 1);
-      const updated = display.slice().reverse();
-      setPickups(s.ownerId, updated);
-      renderTable(updated);
-    }
-
-    function renderTable(list) {
-      const wrap = document.getElementById("tableWrap");
-
-      if (!list.length) {
-        wrap.className = "status";
-        wrap.style.padding = "14px 12px";
-        wrap.innerHTML = "No pickups yet. Click <b>Add Pickup</b> to create your first one.";
-        return;
-      }
-
-      const display = list.slice().reverse();
-
-      const rows = display.map((p, i) => `
-        <tr>
-          <td style="padding:12px; border-bottom:1px solid rgba(15,23,42,.10);">
-            <b>${escapeHtml(p.name || "")}</b><br>
-            <span style="opacity:.85;">${escapeHtml(p.phone || "")}</span>
-          </td>
-          <td style="padding:12px; border-bottom:1px solid rgba(15,23,42,.10);">
-            ${escapeHtml(formatDate(p.dueDate))}
-          </td>
-          <td style="padding:12px; border-bottom:1px solid rgba(15,23,42,.10); text-align:right;">
-            <button class="btn" type="button" onclick="deletePickup(${i})">Delete</button>
-          </td>
-        </tr>
-      `).join("");
-
-      wrap.className = "";
-      wrap.style.padding = "0";
-      wrap.innerHTML = `
-        <table style="width:100%; border-collapse:collapse;">
-          <thead>
-            <tr>
-              <th style="text-align:left; padding:12px; border-bottom:1px solid rgba(15,23,42,.12);">Customer</th>
-              <th style="text-align:left; padding:12px; border-bottom:1px solid rgba(15,23,42,.12);">Due</th>
-              <th style="text-align:right; padding:12px; border-bottom:1px solid rgba(15,23,42,.12);">Action</th>
-            </tr>
-          </thead>
-          <tbody>${rows}</tbody>
-        </table>
-      `;
-    }
-
-    function refreshTable() {
-      const s = requireOwnerIdOrShowLogin();
-      if (!s) return;
-
-      const list = getPickups(s.ownerId);
-      renderTable(list);
-
-      const ds = document.getElementById("dashStatus");
-      ds.className = "status ok";
-      ds.innerHTML = `✅ Loaded <b>${list.length}</b> pickup(s).`;
-      setTimeout(() => { ds.className = "status"; }, 1200);
-    }
-
-    document.addEventListener("DOMContentLoaded", () => {
-      refreshTable();
-    });
-  </script>
-</body>
-</html>
+document.addEventListener("DOMContentLoaded", renderTable);
+</script>
