@@ -1,54 +1,42 @@
-// index.js — MLR CLEAN VERSION (Stripe + Auto-owner + Create Account + Login APIs)
+// index.js — Render-friendly version using better-sqlite3
 
 require("dotenv").config();
 
 const express = require("express");
 const path = require("path");
-const sqlite3 = require("sqlite3").verbose();
 const Stripe = require("stripe");
 const crypto = require("crypto");
+const Database = require("better-sqlite3");
 
 const app = express();
 app.use(express.json());
 
 // ---------------------------
-// Stripe (fail-fast if missing key)
+// Stripe (fail-fast)
 // ---------------------------
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 if (!STRIPE_SECRET_KEY) {
-  console.error("\n❌ STRIPE_SECRET_KEY is missing in .env\n");
+  console.error("\n❌ STRIPE_SECRET_KEY missing in environment (.env locally / Render env vars)\n");
   process.exit(1);
 }
 const stripe = new Stripe(STRIPE_SECRET_KEY);
 
 // ---------------------------
-// Database
+// Database (better-sqlite3)
 // ---------------------------
-const db = new sqlite3.Database("./users.db");
+const db = new Database("./users.db");
 
-// ---------------------------
-// DB BOOTSTRAP (users table for MVP)
-// ---------------------------
-db.serialize(() => {
-  db.run(`
-    CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      loginId TEXT UNIQUE,
-      password TEXT,
-      phone TEXT UNIQUE,
-      subscription_status TEXT DEFAULT 'inactive',
-      createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
-
-  db.all(`PRAGMA table_info(users)`, (err, cols) => {
-    if (err) return console.error("PRAGMA error:", err.message);
-    const names = cols.map((c) => c.name);
-    if (!names.includes("subscription_status")) {
-      db.run(`ALTER TABLE users ADD COLUMN subscription_status TEXT DEFAULT 'inactive'`);
-    }
-  });
-});
+// Create required table (MVP minimal)
+db.exec(`
+  CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    loginId TEXT UNIQUE,
+    password TEXT,
+    phone TEXT UNIQUE,
+    subscription_status TEXT DEFAULT 'inactive',
+    createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+`);
 
 // ---------------------------
 // Helpers: password hashing (no bcrypt needed)
@@ -65,12 +53,16 @@ function hashPassword(password) {
 
 function verifyPassword(password, stored) {
   return new Promise((resolve) => {
-    if (!stored || !stored.includes(":")) return resolve(false);
-    const [salt, key] = stored.split(":");
-    crypto.scrypt(password, salt, 64, (err, derivedKey) => {
-      if (err) return resolve(false);
-      resolve(derivedKey.toString("hex") === key);
-    });
+    try {
+      if (!stored || !stored.includes(":")) return resolve(false);
+      const [salt, key] = stored.split(":");
+      crypto.scrypt(password, salt, 64, (err, derivedKey) => {
+        if (err) return resolve(false);
+        resolve(derivedKey.toString("hex") === key);
+      });
+    } catch {
+      resolve(false);
+    }
   });
 }
 
@@ -91,19 +83,21 @@ app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "frontend", "login.html"));
 });
 
-// Force-serve key pages
+// Force-serve key pages (prevents 404)
 app.get("/welcome.html", (req, res) => {
   res.sendFile(path.join(__dirname, "frontend", "welcome.html"));
 });
+
 app.get("/choose-plan.html", (req, res) => {
   res.sendFile(path.join(__dirname, "frontend", "choose-plan.html"));
 });
+
 app.get("/login.html", (req, res) => {
   res.sendFile(path.join(__dirname, "frontend", "login.html"));
 });
 
 // =====================================================
-// ✅ NEW: CREATE ACCOUNT (JSON API)
+// ✅ JSON API: CREATE ACCOUNT
 // =====================================================
 app.post("/api/create-account", async (req, res) => {
   try {
@@ -111,70 +105,69 @@ app.post("/api/create-account", async (req, res) => {
     const password = String(req.body.password || "").trim();
 
     if (!phone || !password) {
-      return res.status(400).json({ error: "phone and password are required" });
+      return res.status(400).json({ ok: false, error: "phone and password are required" });
     }
     if (password.length < 6) {
-      return res.status(400).json({ error: "password must be at least 6 characters" });
+      return res.status(400).json({ ok: false, error: "password must be at least 6 characters" });
     }
 
     const uniq = Date.now();
     const loginId = `MLR${String(uniq).slice(-8)}`;
-
     const hashed = await hashPassword(password);
 
-    db.run(
-      `INSERT INTO users (loginId, password, phone, subscription_status)
-       VALUES (?, ?, ?, 'inactive')`,
-      [loginId, hashed, phone],
-      function (err) {
-        if (err) {
-          const msg = err.message || "Create failed";
-          // common: UNIQUE constraint failed: users.phone
-          return res.status(400).json({ error: msg });
-        }
-        return res.json({ ok: true, ownerId: this.lastID, loginId });
-      }
-    );
+    try {
+      const stmt = db.prepare(`
+        INSERT INTO users (loginId, password, phone, subscription_status)
+        VALUES (?, ?, ?, 'inactive')
+      `);
+
+      const info = stmt.run(loginId, hashed, phone);
+
+      return res.json({
+        ok: true,
+        ownerId: Number(info.lastInsertRowid),
+        loginId
+      });
+    } catch (err) {
+      // common: UNIQUE constraint failed: users.phone or users.loginId
+      return res.status(400).json({ ok: false, error: err.message || "Create failed" });
+    }
   } catch (e) {
     console.error("Create account error:", e?.message || e);
-    return res.status(500).json({ error: "Server error creating account" });
+    return res.status(500).json({ ok: false, error: "Server error creating account" });
   }
 });
 
 // =====================================================
-// ✅ NEW: LOGIN (JSON API)
+// ✅ JSON API: LOGIN
 // =====================================================
-app.post("/api/login", (req, res) => {
+app.post("/api/login", async (req, res) => {
   try {
     const loginId = String(req.body.loginId || "").trim();
     const password = String(req.body.password || "").trim();
 
     if (!loginId || !password) {
-      return res.status(400).json({ error: "loginId and password are required" });
+      return res.status(400).json({ ok: false, error: "loginId and password are required" });
     }
 
-    db.get(
-      `SELECT id, loginId, password, subscription_status FROM users WHERE loginId = ?`,
-      [loginId],
-      async (err, row) => {
-        if (err) return res.status(500).json({ error: "DB error" });
-        if (!row) return res.status(400).json({ error: "Invalid login" });
+    const row = db
+      .prepare(`SELECT id, loginId, password, subscription_status FROM users WHERE loginId = ?`)
+      .get(loginId);
 
-        const ok = await verifyPassword(password, row.password);
-        if (!ok) return res.status(400).json({ error: "Invalid login" });
+    if (!row) return res.status(400).json({ ok: false, error: "Invalid login" });
 
-        // MVP: return ownerId + subscription status
-        return res.json({
-          ok: true,
-          ownerId: row.id,
-          loginId: row.loginId,
-          subscription_status: row.subscription_status,
-        });
-      }
-    );
+    const ok = await verifyPassword(password, row.password);
+    if (!ok) return res.status(400).json({ ok: false, error: "Invalid login" });
+
+    return res.json({
+      ok: true,
+      ownerId: row.id,
+      loginId: row.loginId,
+      subscription_status: row.subscription_status
+    });
   } catch (e) {
     console.error("Login error:", e?.message || e);
-    return res.status(500).json({ error: "Server error logging in" });
+    return res.status(500).json({ ok: false, error: "Server error logging in" });
   }
 });
 
@@ -208,12 +201,12 @@ app.post("/stripe/create-checkout-session", async (req, res) => {
       success_url: `${process.env.APP_BASE_URL}/welcome.html?success=1`,
       cancel_url: `${process.env.APP_BASE_URL}/choose-plan.html?canceled=1`,
       client_reference_id: String(ownerId),
-      metadata: { owner_id: String(ownerId), plan },
+      metadata: { owner_id: String(ownerId), plan }
     });
 
     res.json({ url: session.url });
   } catch (err) {
-    console.error("Checkout error:", err);
+    console.error("Checkout error:", err?.message || err);
     res.status(500).json({ error: "Checkout failed" });
   }
 });
@@ -222,60 +215,65 @@ app.post("/stripe/create-checkout-session", async (req, res) => {
 // 🚀 SERVER-CREATED CHECKOUT (FOR MARKETING SITE)
 // =====================================================
 app.get("/stripe/checkout", (req, res) => {
-  const planKey = String(req.query.plan || "").toLowerCase();
+  try {
+    const planKey = String(req.query.plan || "").toLowerCase();
 
-  const priceId =
-    planKey === "single"
-      ? process.env.STRIPE_PRICE_SINGLE
-      : planKey === "growth"
-      ? process.env.STRIPE_PRICE_GROWTH
-      : planKey === "pro"
-      ? process.env.STRIPE_PRICE_PRO
-      : null;
+    const priceId =
+      planKey === "single"
+        ? process.env.STRIPE_PRICE_SINGLE
+        : planKey === "growth"
+        ? process.env.STRIPE_PRICE_GROWTH
+        : planKey === "pro"
+        ? process.env.STRIPE_PRICE_PRO
+        : null;
 
-  if (!priceId) {
-    return res.status(400).send("Invalid plan (missing STRIPE_PRICE_ env)");
-  }
-
-  const baseUrl =
-    process.env.APP_BASE_URL ||
-    process.env.PUBLIC_URL ||
-    "http://localhost:3000";
-
-  // Auto-create owner record (unique values)
-  const uniq = Date.now();
-  const autoLoginId = `AUTO${uniq}`;
-  const autoPass = `temp${uniq}`;
-  const autoPhone = `+100000${String(uniq).slice(-6)}`;
-
-  db.run(
-    `INSERT INTO users (loginId, password, phone, subscription_status)
-     VALUES (?, ?, ?, 'inactive')`,
-    [autoLoginId, autoPass, autoPhone],
-    function (err) {
-      if (err) {
-        console.error("Owner create error:", err.message);
-        return res.status(500).send(`Failed to create owner: ${err.message}`);
-      }
-
-      const ownerId = this.lastID;
-
-      stripe.checkout.sessions
-        .create({
-          mode: "subscription",
-          line_items: [{ price: priceId, quantity: 1 }],
-          success_url: `${baseUrl}/login.html?paid=1&owner_id=${ownerId}`,
-          cancel_url: `${baseUrl}/choose-plan.html?canceled=1`,
-          client_reference_id: String(ownerId),
-          metadata: { owner_id: String(ownerId), plan: planKey },
-        })
-        .then((session) => res.redirect(session.url))
-        .catch((e) => {
-          console.error("Stripe session create failed:", e?.message || e);
-          res.status(500).send(`Stripe checkout session failed: ${e?.message || "unknown"}`);
-        });
+    if (!priceId) {
+      return res.status(400).send("Invalid plan (missing STRIPE_PRICE_ env)");
     }
-  );
+
+    const baseUrl =
+      process.env.APP_BASE_URL ||
+      process.env.PUBLIC_URL ||
+      "http://localhost:3000";
+
+    // Auto-create owner row (unique)
+    const uniq = Date.now();
+    const autoLoginId = `AUTO${uniq}`;
+    const autoPass = `temp${uniq}`; // placeholder only
+    const autoPhone = `+100000${String(uniq).slice(-6)}`;
+
+    let ownerId;
+    try {
+      const info = db.prepare(`
+        INSERT INTO users (loginId, password, phone, subscription_status)
+        VALUES (?, ?, ?, 'inactive')
+      `).run(autoLoginId, autoPass, autoPhone);
+
+      ownerId = Number(info.lastInsertRowid);
+    } catch (err) {
+      console.error("Owner create error:", err?.message || err);
+      return res.status(500).send(`Failed to create owner: ${err?.message || "unknown"}`);
+    }
+
+    // Stripe session create (promise-based to avoid crashing)
+    stripe.checkout.sessions
+      .create({
+        mode: "subscription",
+        line_items: [{ price: priceId, quantity: 1 }],
+        success_url: `${baseUrl}/login.html?paid=1&owner_id=${ownerId}`,
+        cancel_url: `${baseUrl}/choose-plan.html?canceled=1`,
+        client_reference_id: String(ownerId),
+        metadata: { owner_id: String(ownerId), plan: planKey }
+      })
+      .then((session) => res.redirect(session.url))
+      .catch((e) => {
+        console.error("Stripe session create failed:", e?.message || e);
+        res.status(500).send(`Stripe checkout session failed: ${e?.message || "unknown error"}`);
+      });
+  } catch (e) {
+    console.error("checkout route error:", e?.message || e);
+    return res.status(500).send("Checkout error");
+  }
 });
 
 // ---------------------------
