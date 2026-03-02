@@ -34,8 +34,8 @@
         <input id="dueDate" type="date" />
 
         <div class="row" style="margin-top:14px;">
-          <button class="btn primary" id="saveBtn">Save Pickup</button>
-          <button class="btn" id="backBtn">Back</button>
+          <button class="btn primary" id="saveBtn" type="button">Save Pickup</button>
+          <button class="btn" id="backBtn" type="button">Back</button>
         </div>
 
         <div class="status" id="statusBox" style="margin-top:14px;">Fill the form and click Save.</div>
@@ -63,46 +63,57 @@
       return { ownerId, loginId };
     }
 
-    document.getElementById("backBtn").addEventListener("click", () => {
-      window.location.href = "/dashboard.html";
-    });
-
-    document.getElementById("saveBtn").addEventListener("click", async () => {
-      const info = requireOwner();
-      if (!info) return;
-
-      const name = document.getElementById("custName").value.trim();
-      const phone = document.getElementById("custPhone").value.trim();
-      const dueDate = document.getElementById("dueDate").value;
-
+    function setStatus(type, msg) {
       const box = document.getElementById("statusBox");
-
-      if (!name || !phone || !dueDate) {
-        box.className = "status err";
-        box.textContent = "Please fill Customer Name, Phone, and Due Date.";
-        return;
-      }
-
-      // MVP: store locally for now, until we wire /api/pickups
-      const key = `mlr_pickups_owner_${info.ownerId}`;
-      const existing = JSON.parse(localStorage.getItem(key) || "[]");
-      existing.push({ name, phone, dueDate, createdAt: new Date().toISOString() });
-      localStorage.setItem(key, JSON.stringify(existing));
-
-      box.className = "status ok";
-      box.innerHTML = `✅ Saved locally for Owner <b>${info.ownerId}</b>.<br><span style="opacity:.85;">Next we connect to DB + SMS reminders.</span>`;
-
-      // Clear inputs
-      document.getElementById("custName").value = "";
-      document.getElementById("custPhone").value = "";
-      document.getElementById("dueDate").value = "";
-    });
+      box.className = type ? `status ${type}` : "status";
+      box.innerHTML = msg;
+    }
 
     document.addEventListener("DOMContentLoaded", () => {
       const info = requireOwner();
       if (!info) return;
+
       document.getElementById("ownerLine").innerHTML =
         `Logged in as <b>${info.loginId}</b> (Owner ID: <b>${info.ownerId}</b>)`;
+
+      document.getElementById("backBtn").addEventListener("click", () => {
+        window.location.href = "/dashboard.html";
+      });
+
+      document.getElementById("saveBtn").addEventListener("click", () => {
+        const name = document.getElementById("custName").value.trim();
+        const phone = document.getElementById("custPhone").value.trim();
+        const dueDate = document.getElementById("dueDate").value;
+
+        if (!name || !phone || !dueDate) {
+          setStatus("err", "Please fill <b>Customer Name</b>, <b>Phone</b>, and <b>Due Date</b>.");
+          return;
+        }
+
+        try {
+          // MVP: store locally for now, until we wire /api/pickups
+          const key = `mlr_pickups_owner_${info.ownerId}`;
+          const existing = JSON.parse(localStorage.getItem(key) || "[]");
+
+          existing.push({
+            name,
+            phone,
+            dueDate,
+            createdAt: new Date().toISOString()
+          });
+
+          localStorage.setItem(key, JSON.stringify(existing));
+
+          setStatus("ok", `✅ Pickup saved.<br><span style="opacity:.85;">Customer: <b>${name}</b> — Due: <b>${dueDate}</b></span>`);
+
+          // Clear inputs
+          document.getElementById("custName").value = "";
+          document.getElementById("custPhone").value = "";
+          document.getElementById("dueDate").value = "";
+        } catch (e) {
+          setStatus("err", `Save failed: ${e.message}`);
+        }
+      });
     });
   </script>
 </body>
