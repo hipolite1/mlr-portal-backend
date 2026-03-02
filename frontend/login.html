@@ -1,10 +1,10 @@
-<!-- login.html (PASTE OVER FULL FILE) -->
+<!-- frontend/login.html (PASTE OVER FULL FILE) -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>MyLaundryReminder - Login</title>
+  <title>MyLaundryReminder - Portal Access</title>
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
@@ -14,57 +14,73 @@
         <div class="logo"></div>
         <div>
           <h1>MyLaundryReminder</h1>
-          <p>Owner Login</p>
+          <p>Subscriber Portal</p>
         </div>
       </div>
-      <span class="badge">Test Mode</span>
+      <span class="badge">Portal</span>
+    </div>
+
+    <div class="card" id="paidBanner" style="display:none; margin-bottom:18px;">
+      <h2 style="margin-bottom:6px;">✅ Payment received</h2>
+      <p class="sub" style="margin-bottom:0;">
+        Next step: create your portal account (or login). After that you’ll go straight to your dashboard to <b>Add Pickups</b>.
+      </p>
     </div>
 
     <div class="grid">
       <!-- Create account -->
       <div class="card">
         <h2>Create Account</h2>
-        <p class="sub">Enter your phone + create a password. We’ll generate your Login ID.</p>
+        <p class="sub">Use your phone + password. We’ll generate a Login ID for you.</p>
 
         <label for="createPhone">Phone</label>
         <input id="createPhone" placeholder="+14165550123" />
 
-        <label for="createPassword" style="margin-top:10px;">Password</label>
+        <label for="createPassword">Password</label>
         <input id="createPassword" type="password" placeholder="At least 6 characters" />
 
-        <div class="row" style="margin-top:10px;">
+        <div class="row" style="margin-top:12px;">
           <button class="btn primary" id="createBtn">Create Account</button>
         </div>
 
         <div class="status" id="createStatus"></div>
+
+        <div class="footer-note">
+          Note: plan selection happens on the marketing site first. After payment you come here to unlock the portal.
+        </div>
       </div>
 
       <!-- Login -->
       <div class="card">
         <h2>Login</h2>
-        <p class="sub">Use your <b>Login ID</b> + password to continue.</p>
+        <p class="sub">Enter your Login ID + password to access your dashboard.</p>
 
         <label for="loginIdInput">Login ID</label>
         <input id="loginIdInput" placeholder="MLR12345678" />
 
-        <label for="loginPasswordInput" style="margin-top:10px;">Password</label>
+        <label for="loginPasswordInput">Password</label>
         <input id="loginPasswordInput" type="password" placeholder="Your password" />
 
-        <div class="row" style="margin-top:10px;">
-          <button class="btn primary" id="enterBtn">Continue</button>
-          <button class="btn" id="clearBtn">Clear</button>
+        <div class="row" style="margin-top:12px;">
+          <button class="btn primary" id="loginBtn">Continue</button>
+          <button class="btn" id="clearBtn" type="button">Clear</button>
         </div>
 
         <div class="status" id="loginStatus"></div>
-
-        <div class="footer-note">
-          Tip: After login, we save your Owner ID locally for the MVP portal.
-        </div>
       </div>
     </div>
   </div>
 
   <script>
+    function qs(name) {
+      const url = new URL(window.location.href);
+      return url.searchParams.get(name);
+    }
+
+    function goDashboard() {
+      window.location.href = "/dashboard.html"; // ✅ FIX: no choose-plan redirect anymore
+    }
+
     async function createAccount() {
       const phone = document.getElementById("createPhone").value.trim();
       const password = document.getElementById("createPassword").value.trim();
@@ -91,25 +107,22 @@
         const data = await res.json();
 
         if (!res.ok || !data.ok) {
+          status.className = "status err";
           status.textContent = `Create failed: ${data.error || "unknown error"}`;
           return;
         }
 
-        // Save ownerId for MVP convenience
         localStorage.setItem("ownerId", String(data.ownerId));
         localStorage.setItem("loginId", String(data.loginId));
 
-        status.innerHTML = `
-          ✅ Account created.<br>
-          <b>Owner ID:</b> ${data.ownerId}<br>
+        status.className = "status ok";
+        status.innerHTML = `✅ Account created.<br>
           <b>Login ID:</b> ${data.loginId}<br>
-          <span style="opacity:.85;">Now login using your Login ID + password.</span>
-        `;
+          <span style="opacity:.85;">Redirecting to dashboard…</span>`;
 
-        // Pre-fill login fields
-        document.getElementById("loginIdInput").value = data.loginId;
-        document.getElementById("loginPasswordInput").value = password;
+        setTimeout(goDashboard, 600);
       } catch (e) {
+        status.className = "status err";
         status.textContent = `Create failed: ${e.message}`;
       }
     }
@@ -120,10 +133,12 @@
       const status = document.getElementById("loginStatus");
 
       if (!loginId || !password) {
+        status.className = "status err";
         status.textContent = "Enter Login ID and password.";
         return;
       }
 
+      status.className = "status";
       status.textContent = "Logging in...";
 
       try {
@@ -136,17 +151,19 @@
         const data = await res.json();
 
         if (!res.ok || !data.ok) {
+          status.className = "status err";
           status.textContent = `Login failed: ${data.error || "unknown error"}`;
           return;
         }
 
-        // Save ownerId for MVP portal routing
         localStorage.setItem("ownerId", String(data.ownerId));
         localStorage.setItem("loginId", String(data.loginId));
 
-        status.textContent = "✅ Logged in. Redirecting...";
-        window.location.href = "/choose-plan.html";
+        status.className = "status ok";
+        status.textContent = "✅ Logged in. Redirecting to dashboard...";
+        setTimeout(goDashboard, 450);
       } catch (e) {
+        status.className = "status err";
         status.textContent = `Login failed: ${e.message}`;
       }
     }
@@ -156,14 +173,24 @@
       localStorage.removeItem("loginId");
       document.getElementById("loginIdInput").value = "";
       document.getElementById("loginPasswordInput").value = "";
+      document.getElementById("loginStatus").className = "status";
       document.getElementById("loginStatus").textContent = "Cleared.";
     }
 
     document.getElementById("createBtn").addEventListener("click", createAccount);
-    document.getElementById("enterBtn").addEventListener("click", login);
+    document.getElementById("loginBtn").addEventListener("click", login);
     document.getElementById("clearBtn").addEventListener("click", clearLocal);
 
     document.addEventListener("DOMContentLoaded", () => {
+      if (qs("paid") === "1") {
+        document.getElementById("paidBanner").style.display = "block";
+      }
+
+      const ownerFromStripe = qs("owner_id");
+      if (ownerFromStripe) {
+        localStorage.setItem("ownerId", String(ownerFromStripe));
+      }
+
       const existingLoginId = localStorage.getItem("loginId");
       if (existingLoginId) document.getElementById("loginIdInput").value = existingLoginId;
     });
