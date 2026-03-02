@@ -70,14 +70,6 @@ function verifyPassword(password, stored) {
 // ---------------------------
 // Static frontend
 // ---------------------------
-// (Optional but helpful) avoid stale cached HTML/CSS on deploy
-app.use((req, res, next) => {
-  if (req.method === "GET" && /\.(html|css|js)$/.test(req.path)) {
-    res.setHeader("Cache-Control", "no-store");
-  }
-  next();
-});
-
 app.use(express.static(path.join(__dirname, "frontend")));
 
 // =========================
@@ -105,7 +97,7 @@ app.get("/login.html", (req, res) => {
   res.sendFile(path.join(__dirname, "frontend", "login.html"));
 });
 
-// ✅ Step 3: New pages for post-login funnel
+// ✅ NEW: Force-serve dashboard + add pickup pages (prevents weird fallback)
 app.get("/dashboard.html", (req, res) => {
   res.sendFile(path.join(__dirname, "frontend", "dashboard.html"));
 });
@@ -263,10 +255,9 @@ app.get("/stripe/checkout", (req, res) => {
     const baseUrl =
       process.env.APP_BASE_URL || process.env.PUBLIC_URL || "http://localhost:3000";
 
-    // Auto-create owner row (unique)
     const uniq = Date.now();
     const autoLoginId = `AUTO${uniq}`;
-    const autoPass = `temp${uniq}`; // placeholder only
+    const autoPass = `temp${uniq}`;
     const autoPhone = `+100000${String(uniq).slice(-6)}`;
 
     let ownerId;
@@ -281,9 +272,7 @@ app.get("/stripe/checkout", (req, res) => {
       ownerId = Number(info.lastInsertRowid);
     } catch (err) {
       console.error("Owner create error:", err?.message || err);
-      return res
-        .status(500)
-        .send(`Failed to create owner: ${err?.message || "unknown"}`);
+      return res.status(500).send(`Failed to create owner: ${err?.message || "unknown"}`);
     }
 
     stripe.checkout.sessions
@@ -298,9 +287,7 @@ app.get("/stripe/checkout", (req, res) => {
       .then((session) => res.redirect(session.url))
       .catch((e) => {
         console.error("Stripe session create failed:", e?.message || e);
-        res
-          .status(500)
-          .send(`Stripe checkout session failed: ${e?.message || "unknown error"}`);
+        res.status(500).send(`Stripe checkout session failed: ${e?.message || "unknown error"}`);
       });
   } catch (e) {
     console.error("checkout route error:", e?.message || e);

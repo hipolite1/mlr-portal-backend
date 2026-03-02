@@ -22,30 +22,24 @@
     <div class="grid">
       <div class="card">
         <h2>Welcome 👋</h2>
-        <p class="sub" id="ownerLine">Loading your account…</p>
+        <p class="sub" id="ownerLine">Loading…</p>
 
         <div class="row" style="margin-top:14px;">
           <button class="btn primary" id="addPickupBtn">➕ Add Pickup</button>
+          <button class="btn" id="viewLocalBtn">View Saved Pickups</button>
           <button class="btn" id="logoutBtn">Logout</button>
         </div>
 
         <div class="status" id="dashStatus" style="margin-top:14px;">
-          Tip: Use “Add Pickup” to create a pickup reminder for a customer.
+          Tip: Click “Add Pickup” to create a reminder entry.
         </div>
       </div>
 
       <div class="card">
-        <h2>Next steps</h2>
-        <p class="sub">
-          This MVP dashboard is intentionally simple. We will add:
-          <br>• Add Customer list
-          <br>• Pickup status (pending / picked_up)
-          <br>• Subscription status badge
-          <br>• Reminder history
-        </p>
-        <div class="status">
-          ✅ You’re in the right place: after login, you should land here — no plan selection, no Stripe repeat.
-        </div>
+        <h2>Saved Pickups (local for now)</h2>
+        <p class="sub">Until we wire pickups to SQLite + reminders, we’re storing them in your browser.</p>
+
+        <div class="status" id="pickupsBox">No pickups loaded yet.</div>
       </div>
     </div>
   </div>
@@ -61,6 +55,31 @@
       return { ownerId, loginId };
     }
 
+    function renderPickups(ownerId) {
+      const key = `mlr_pickups_owner_${ownerId}`;
+      const list = JSON.parse(localStorage.getItem(key) || "[]");
+      const box = document.getElementById("pickupsBox");
+
+      if (!list.length) {
+        box.className = "status";
+        box.textContent = "No pickups saved yet.";
+        return;
+      }
+
+      box.className = "status";
+      box.innerHTML = list
+        .slice()
+        .reverse()
+        .map(p => {
+          const due = p.dueDate ? new Date(p.dueDate).toDateString() : "N/A";
+          return `<div style="padding:10px 0; border-bottom:1px solid rgba(15,23,42,.10);">
+            <b>${p.name}</b> — ${p.phone}<br/>
+            <span style="opacity:.85;">Due: ${due}</span>
+          </div>`;
+        })
+        .join("");
+    }
+
     document.getElementById("addPickupBtn").addEventListener("click", () => {
       window.location.href = "/add-pickup.html";
     });
@@ -71,12 +90,21 @@
       window.location.href = "/login.html";
     });
 
+    document.getElementById("viewLocalBtn").addEventListener("click", () => {
+      const info = requireOwner();
+      if (!info) return;
+      renderPickups(info.ownerId);
+    });
+
     document.addEventListener("DOMContentLoaded", () => {
       const info = requireOwner();
       if (!info) return;
 
       document.getElementById("ownerLine").innerHTML =
         `Logged in as <b>${info.loginId}</b> (Owner ID: <b>${info.ownerId}</b>)`;
+
+      // Auto-load pickups on page load
+      renderPickups(info.ownerId);
     });
   </script>
 </body>
