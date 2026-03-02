@@ -1,0 +1,172 @@
+<!-- login.html (PASTE OVER FULL FILE) -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MyLaundryReminder - Login</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="brand">
+        <div class="logo"></div>
+        <div>
+          <h1>MyLaundryReminder</h1>
+          <p>Owner Login</p>
+        </div>
+      </div>
+      <span class="badge">Test Mode</span>
+    </div>
+
+    <div class="grid">
+      <!-- Create account -->
+      <div class="card">
+        <h2>Create Account</h2>
+        <p class="sub">Enter your phone + create a password. We’ll generate your Login ID.</p>
+
+        <label for="createPhone">Phone</label>
+        <input id="createPhone" placeholder="+14165550123" />
+
+        <label for="createPassword" style="margin-top:10px;">Password</label>
+        <input id="createPassword" type="password" placeholder="At least 6 characters" />
+
+        <div class="row" style="margin-top:10px;">
+          <button class="btn primary" id="createBtn">Create Account</button>
+        </div>
+
+        <div class="status" id="createStatus"></div>
+      </div>
+
+      <!-- Login -->
+      <div class="card">
+        <h2>Login</h2>
+        <p class="sub">Use your <b>Login ID</b> + password to continue.</p>
+
+        <label for="loginIdInput">Login ID</label>
+        <input id="loginIdInput" placeholder="MLR12345678" />
+
+        <label for="loginPasswordInput" style="margin-top:10px;">Password</label>
+        <input id="loginPasswordInput" type="password" placeholder="Your password" />
+
+        <div class="row" style="margin-top:10px;">
+          <button class="btn primary" id="enterBtn">Continue</button>
+          <button class="btn" id="clearBtn">Clear</button>
+        </div>
+
+        <div class="status" id="loginStatus"></div>
+
+        <div class="footer-note">
+          Tip: After login, we save your Owner ID locally for the MVP portal.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    async function createAccount() {
+      const phone = document.getElementById("createPhone").value.trim();
+      const password = document.getElementById("createPassword").value.trim();
+      const status = document.getElementById("createStatus");
+
+      status.textContent = "Creating...";
+
+      if (!phone || !password) {
+        status.textContent = "Please enter phone and password.";
+        return;
+      }
+      if (password.length < 6) {
+        status.textContent = "Password must be at least 6 characters.";
+        return;
+      }
+
+      try {
+        const res = await fetch("/api/create-account", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ phone, password })
+        });
+
+        const data = await res.json();
+
+        if (!res.ok || !data.ok) {
+          status.textContent = `Create failed: ${data.error || "unknown error"}`;
+          return;
+        }
+
+        // Save ownerId for MVP convenience
+        localStorage.setItem("ownerId", String(data.ownerId));
+        localStorage.setItem("loginId", String(data.loginId));
+
+        status.innerHTML = `
+          ✅ Account created.<br>
+          <b>Owner ID:</b> ${data.ownerId}<br>
+          <b>Login ID:</b> ${data.loginId}<br>
+          <span style="opacity:.85;">Now login using your Login ID + password.</span>
+        `;
+
+        // Pre-fill login fields
+        document.getElementById("loginIdInput").value = data.loginId;
+        document.getElementById("loginPasswordInput").value = password;
+      } catch (e) {
+        status.textContent = `Create failed: ${e.message}`;
+      }
+    }
+
+    async function login() {
+      const loginId = document.getElementById("loginIdInput").value.trim();
+      const password = document.getElementById("loginPasswordInput").value.trim();
+      const status = document.getElementById("loginStatus");
+
+      if (!loginId || !password) {
+        status.textContent = "Enter Login ID and password.";
+        return;
+      }
+
+      status.textContent = "Logging in...";
+
+      try {
+        const res = await fetch("/api/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ loginId, password })
+        });
+
+        const data = await res.json();
+
+        if (!res.ok || !data.ok) {
+          status.textContent = `Login failed: ${data.error || "unknown error"}`;
+          return;
+        }
+
+        // Save ownerId for MVP portal routing
+        localStorage.setItem("ownerId", String(data.ownerId));
+        localStorage.setItem("loginId", String(data.loginId));
+
+        status.textContent = "✅ Logged in. Redirecting...";
+        window.location.href = "/choose-plan.html";
+      } catch (e) {
+        status.textContent = `Login failed: ${e.message}`;
+      }
+    }
+
+    function clearLocal() {
+      localStorage.removeItem("ownerId");
+      localStorage.removeItem("loginId");
+      document.getElementById("loginIdInput").value = "";
+      document.getElementById("loginPasswordInput").value = "";
+      document.getElementById("loginStatus").textContent = "Cleared.";
+    }
+
+    document.getElementById("createBtn").addEventListener("click", createAccount);
+    document.getElementById("enterBtn").addEventListener("click", login);
+    document.getElementById("clearBtn").addEventListener("click", clearLocal);
+
+    document.addEventListener("DOMContentLoaded", () => {
+      const existingLoginId = localStorage.getItem("loginId");
+      if (existingLoginId) document.getElementById("loginIdInput").value = existingLoginId;
+    });
+  </script>
+</body>
+</html>

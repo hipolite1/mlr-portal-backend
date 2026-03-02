@@ -1,0 +1,146 @@
+<!-- choose-plan.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Choose a Plan - MyLaundryReminder</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="brand">
+        <div class="logo"></div>
+        <div>
+          <h1>Choose Your Plan</h1>
+          <p>30-day trial, then monthly. Cancel anytime.</p>
+        </div>
+      </div>
+      <div class="row">
+        <span class="badge" id="ownerBadge">Owner: —</span>
+        <button class="btn" id="backBtn" type="button">Back</button>
+      </div>
+    </div>
+
+    <!-- Move status up so you SEE it -->
+    <div class="card" style="margin-bottom:14px;">
+      <div class="status" id="statusMsg">Pick a plan to start your trial.</div>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <h2>Single Store</h2>
+        <p class="sub"><b>$49/month</b> — one location, core reminders.</p>
+        <ul style="margin:0 0 12px 18px; color:var(--muted); font-size:13px; line-height:1.5;">
+          <li>Unlimited customers</li>
+          <li>Automated pickup reminders</li>
+          <li>Timezone support</li>
+        </ul>
+        <button class="btn primary planBtn" data-plan="single" type="button">Start Trial</button>
+      </div>
+
+      <div class="card">
+        <h2>Growth</h2>
+        <p class="sub"><b>$99/month</b> — growing ops, multi-location ready.</p>
+        <ul style="margin:0 0 12px 18px; color:var(--muted); font-size:13px; line-height:1.5;">
+          <li>Everything in Single Store</li>
+          <li>Better scaling for teams</li>
+          <li>Priority improvements</li>
+        </ul>
+        <button class="btn primary planBtn" data-plan="growth" type="button">Start Trial</button>
+      </div>
+
+      <div class="card">
+        <h2>Pro</h2>
+        <p class="sub"><b>$199/month</b> — high volume + premium.</p>
+        <ul style="margin:0 0 12px 18px; color:var(--muted); font-size:13px; line-height:1.5;">
+          <li>Everything in Growth</li>
+          <li>Premium support</li>
+          <li>Early access features</li>
+        </ul>
+        <button class="btn primary planBtn" data-plan="pro" type="button">Start Trial</button>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:14px;">
+      <h2>After checkout</h2>
+      <p class="sub">
+        Once you finish Stripe Checkout, you’ll be sent to the portal.
+        If you cancel checkout, you’ll come back here.
+      </p>
+    </div>
+  </div>
+
+  <script>
+    function getOwnerId() {
+      return localStorage.getItem("ownerId") || localStorage.getItem("owner_id") || "";
+    }
+
+    function setButtonsEnabled(enabled) {
+      document.querySelectorAll(".planBtn").forEach(btn => {
+        btn.disabled = !enabled;
+        btn.style.opacity = enabled ? "1" : "0.7";
+        btn.style.pointerEvents = enabled ? "auto" : "none";
+      });
+    }
+
+    async function startPlan(plan) {
+      const ownerId = getOwnerId();
+      const status = document.getElementById("statusMsg");
+
+      console.log("[choose-plan] startPlan clicked:", { plan, ownerId });
+
+      if (!ownerId) {
+        status.textContent = "Owner not found. Please log in again.";
+        window.location.href = "/login.html";
+        return;
+      }
+
+      status.textContent = "Starting checkout...";
+      setButtonsEnabled(false);
+
+      try {
+        const res = await fetch("/stripe/create-checkout-session", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ownerId: Number(ownerId), plan })
+        });
+
+        const data = await res.json();
+        console.log("[choose-plan] checkout response:", res.status, data);
+
+        if (!res.ok || !data.url) {
+          status.textContent = `Checkout failed: ${data.error || "unknown error"}`;
+          setButtonsEnabled(true);
+          return;
+        }
+
+        window.location.href = data.url;
+      } catch (err) {
+        console.error("[choose-plan] checkout error:", err);
+        status.textContent = "Checkout failed: network/server error.";
+        setButtonsEnabled(true);
+      }
+    }
+
+    document.addEventListener("DOMContentLoaded", () => {
+      const ownerId = getOwnerId();
+      document.getElementById("ownerBadge").textContent = ownerId ? `Owner: ${ownerId}` : "Owner: —";
+
+      document.getElementById("backBtn").addEventListener("click", () => {
+        window.location.href = "/login.html";
+      });
+
+      document.querySelectorAll(".planBtn").forEach(btn => {
+        btn.addEventListener("click", () => startPlan(btn.dataset.plan));
+      });
+
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("canceled") === "1") {
+        document.getElementById("statusMsg").textContent = "Checkout canceled. Please choose a plan to continue.";
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,537 @@
+<!-- welcome.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MyLaundryReminder - Portal</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+
+<body>
+
+  <!-- 🔒 HARD PAYWALL GUARD (redirect inactive → choose-plan) -->
+  <script>
+    (async function subscriptionGate() {
+      const ownerId =
+        localStorage.getItem("ownerId") ||
+        localStorage.getItem("owner_id");
+
+      if (!ownerId) {
+        window.location.href = "/login.html";
+        return;
+      }
+
+      try {
+        // This endpoint is gated in your backend.
+        // If it returns 402 => subscription inactive.
+        const res = await fetch(`/api/users/get-timezone?ownerId=${encodeURIComponent(ownerId)}`);
+
+        if (res.status === 402) {
+          window.location.href = "/choose-plan.html";
+          return;
+        }
+
+        if (!res.ok) {
+          window.location.href = "/login.html";
+          return;
+        }
+
+        // ✅ allow page to render
+      } catch (err) {
+        console.error("Subscription gate failed", err);
+        window.location.href = "/login.html";
+      }
+    })();
+  </script>
+
+  <div class="container">
+    <div class="header">
+      <div class="brand">
+        <div class="logo"></div>
+        <div>
+          <h1>MyLaundryReminder Portal</h1>
+          <p>Customers • Pickups • Reminders</p>
+        </div>
+      </div>
+      <div class="row">
+        <span class="badge" id="subBadge">Checking subscription…</span>
+        <button class="btn" id="logoutBtn">Logout</button>
+      </div>
+    </div>
+
+    <div class="grid">
+      <!-- LEFT: Customers -->
+      <div class="card">
+        <h2>Customers</h2>
+        <p class="sub">Add customers, then create pickups for them.</p>
+
+        <div class="row" style="gap:12px;">
+          <div style="flex:1; min-width:220px;">
+            <label for="custName">Customer name</label>
+            <input id="custName" placeholder="John Doe" />
+          </div>
+          <div style="flex:1; min-width:220px;">
+            <label for="custPhone">Customer phone</label>
+            <input id="custPhone" placeholder="15551234567" />
+          </div>
+        </div>
+
+        <div class="row" style="margin-top:10px;">
+          <button class="btn primary" id="addCustomerBtn">Add Customer</button>
+          <button class="btn" id="refreshCustomersBtn">Refresh</button>
+        </div>
+
+        <div class="status" id="customersStatus"></div>
+
+        <div style="margin-top:12px;">
+          <label>Customer list</label>
+          <select id="customerSelect"></select>
+        </div>
+
+        <div style="margin-top:10px;">
+          <div class="badge">Tip: Select a customer to add a pickup</div>
+        </div>
+      </div>
+
+      <!-- RIGHT: Pickups -->
+      <div class="card">
+        <h2>Pickups</h2>
+        <p class="sub">Create pickups and mark them picked up.</p>
+
+        <div class="row" style="gap:12px;">
+          <div style="flex:1; min-width:240px;">
+            <label for="pickupDueDate">Due date</label>
+            <input id="pickupDueDate" type="date" />
+          </div>
+          <div style="flex:1; min-width:240px;">
+            <label for="pickupStatusFilter">Filter</label>
+            <select id="pickupStatusFilter">
+              <option value="">All</option>
+              <option value="pending">Pending</option>
+              <option value="picked_up">Picked up</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="row" style="margin-top:10px;">
+          <button class="btn primary" id="addPickupBtn">Add Pickup for Selected Customer</button>
+          <button class="btn" id="refreshPickupsBtn">Refresh</button>
+        </div>
+
+        <div class="status" id="pickupsStatus"></div>
+
+        <div style="margin-top:12px;">
+          <label>Pickups list</label>
+          <div id="pickupsList"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid" style="margin-top:14px;">
+      <!-- Timezone -->
+      <div class="card">
+        <h2>Timezone</h2>
+        <p class="sub">Reminders send at ~9:00 AM in your local timezone.</p>
+
+        <label for="timezoneSelect">Select timezone</label>
+        <select id="timezoneSelect">
+          <option value="America/New_York">Eastern (New York)</option>
+          <option value="America/Chicago">Central (Chicago)</option>
+          <option value="America/Denver">Mountain (Denver)</option>
+          <option value="America/Los_Angeles">Pacific (Los Angeles)</option>
+          <option value="America/Phoenix">Arizona (Phoenix)</option>
+
+          <option value="America/Toronto">Canada — Toronto</option>
+          <option value="America/Vancouver">Canada — Vancouver</option>
+          <option value="America/Edmonton">Canada — Edmonton</option>
+          <option value="America/Winnipeg">Canada — Winnipeg</option>
+          <option value="America/Halifax">Canada — Halifax</option>
+          <option value="America/St_Johns">Canada — St Johns</option>
+        </select>
+
+        <div class="row" style="margin-top:10px;">
+          <button class="btn primary" id="saveTimezoneBtn">Save Timezone</button>
+        </div>
+
+        <div class="status" id="timezoneStatus"></div>
+      </div>
+
+      <!-- Billing -->
+      <div class="card">
+        <h2>Billing</h2>
+        <p class="sub">Manage billing, payment method, invoices, or cancel anytime.</p>
+
+        <div class="kv">
+          <div>Owner ID</div><div id="ownerIdLabel">—</div>
+        </div>
+
+        <div class="row" style="margin-top:10px;">
+          <button class="btn primary" id="manageBillingBtn">Manage Billing</button>
+          <button class="btn" id="changePlanBtn">Change Plan</button>
+        </div>
+
+        <div class="status" id="billingStatus"></div>
+
+        <div class="footer-note">
+          Manage Billing opens Stripe’s customer portal. Change Plan takes you to plan selection.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // -------------------------
+    // Helpers
+    // -------------------------
+    function getOwnerId() {
+      return localStorage.getItem("ownerId") || localStorage.getItem("owner_id") || "";
+    }
+    function setStatus(elId, msg) {
+      const el = document.getElementById(elId);
+      if (el) el.textContent = msg;
+    }
+    function escapeHtml(s) {
+      return String(s)
+        .replaceAll("&","&amp;")
+        .replaceAll("<","&lt;")
+        .replaceAll(">","&gt;")
+        .replaceAll('"',"&quot;")
+        .replaceAll("'","&#039;");
+    }
+
+    // -------------------------
+    // Subscription badge check (best-effort)
+    // -------------------------
+    async function updateSubBadge() {
+      const ownerId = getOwnerId();
+      const badge = document.getElementById("subBadge");
+      if (!ownerId) {
+        badge.textContent = "Not logged in";
+        return;
+      }
+      try {
+        const res = await fetch(`/api/users/get-timezone?ownerId=${encodeURIComponent(ownerId)}`);
+        if (res.status === 402) {
+          badge.textContent = "Subscription: Inactive";
+          return;
+        }
+        if (!res.ok) {
+          badge.textContent = "Subscription: Unknown";
+          return;
+        }
+        badge.textContent = "Subscription: Active/Trial";
+      } catch {
+        badge.textContent = "Subscription: Unknown";
+      }
+    }
+
+    // -------------------------
+    // Customers
+    // -------------------------
+    async function refreshCustomers(selectAfterId) {
+      const ownerId = getOwnerId();
+      if (!ownerId) {
+        setStatus("customersStatus", "OwnerId not found. Go to Login.");
+        return;
+      }
+
+      setStatus("customersStatus", "Loading customers...");
+      const res = await fetch(`/api/customers/list?ownerId=${encodeURIComponent(ownerId)}`);
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        setStatus("customersStatus", `Load failed: ${data.error || "unknown error"}`);
+        return;
+      }
+
+      const sel = document.getElementById("customerSelect");
+      sel.innerHTML = "";
+
+      if (!data.customers || data.customers.length === 0) {
+        sel.innerHTML = `<option value="">No customers yet</option>`;
+        setStatus("customersStatus", "No customers yet. Add one above.");
+        return;
+      }
+
+      for (const c of data.customers) {
+        const opt = document.createElement("option");
+        opt.value = c.id;
+        opt.textContent = `${c.name} (${c.phone})`;
+        sel.appendChild(opt);
+      }
+
+      if (selectAfterId) sel.value = String(selectAfterId);
+      setStatus("customersStatus", `Loaded ${data.customers.length} customer(s).`);
+    }
+
+    async function addCustomer() {
+      const ownerId = getOwnerId();
+      const name = document.getElementById("custName").value.trim();
+      const phone = document.getElementById("custPhone").value.trim();
+
+      if (!ownerId) return setStatus("customersStatus", "OwnerId not found. Go to Login.");
+      if (!name || !phone) return setStatus("customersStatus", "Enter customer name + phone.");
+
+      setStatus("customersStatus", "Adding customer...");
+      const res = await fetch(`/api/customers/add`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ownerId: Number(ownerId), name, phone })
+      });
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        setStatus("customersStatus", `Add failed: ${data.error || "unknown error"}`);
+        return;
+      }
+
+      document.getElementById("custName").value = "";
+      document.getElementById("custPhone").value = "";
+
+      await refreshCustomers(data.customerId);
+      setStatus("customersStatus", "✅ Customer added.");
+    }
+
+    // -------------------------
+    // Pickups
+    // -------------------------
+    async function refreshPickups() {
+      const ownerId = getOwnerId();
+      if (!ownerId) {
+        setStatus("pickupsStatus", "OwnerId not found. Go to Login.");
+        return;
+      }
+
+      const statusFilter = document.getElementById("pickupStatusFilter").value;
+      const url = statusFilter
+        ? `/api/pickups/list?ownerId=${encodeURIComponent(ownerId)}&status=${encodeURIComponent(statusFilter)}`
+        : `/api/pickups/list?ownerId=${encodeURIComponent(ownerId)}`;
+
+      setStatus("pickupsStatus", "Loading pickups...");
+      const res = await fetch(url);
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        setStatus("pickupsStatus", `Load failed: ${data.error || "unknown error"}`);
+        return;
+      }
+
+      const list = document.getElementById("pickupsList");
+      list.innerHTML = "";
+
+      const pickups = data.pickups || [];
+      if (pickups.length === 0) {
+        list.innerHTML = `<div class="status">No pickups yet.</div>`;
+        setStatus("pickupsStatus", "No pickups yet.");
+        return;
+      }
+
+      const wrap = document.createElement("div");
+      wrap.style.display = "grid";
+      wrap.style.gap = "10px";
+
+      for (const p of pickups) {
+        const card = document.createElement("div");
+        card.style.border = "1px solid var(--line)";
+        card.style.borderRadius = "12px";
+        card.style.padding = "10px";
+        card.style.background = "rgba(255,255,255,.55)";
+
+        const title = document.createElement("div");
+        title.style.display = "flex";
+        title.style.justifyContent = "space-between";
+        title.style.gap = "10px";
+        title.innerHTML = `
+          <div>
+            <b>${escapeHtml(p.customer_name)}</b> <span style="opacity:.75">(${escapeHtml(p.customer_phone)})</span><br/>
+            <span style="opacity:.8">Due: ${escapeHtml(p.due_date)} • Status: <b>${escapeHtml(p.status)}</b></span>
+          </div>
+          <div></div>
+        `;
+
+        const actions = document.createElement("div");
+        actions.style.marginTop = "8px";
+
+        if (p.status === "pending") {
+          const btn = document.createElement("button");
+          btn.className = "btn";
+          btn.textContent = "Mark Picked Up";
+          btn.addEventListener("click", async () => {
+            await markPickedUp(p.id);
+          });
+          actions.appendChild(btn);
+        } else {
+          const done = document.createElement("span");
+          done.className = "badge";
+          done.textContent = "Completed";
+          actions.appendChild(done);
+        }
+
+        card.appendChild(title);
+        card.appendChild(actions);
+        wrap.appendChild(card);
+      }
+
+      list.appendChild(wrap);
+      setStatus("pickupsStatus", `Loaded ${pickups.length} pickup(s).`);
+    }
+
+    async function addPickup() {
+      const ownerId = getOwnerId();
+      const customerId = document.getElementById("customerSelect").value;
+      const dueDate = document.getElementById("pickupDueDate").value;
+
+      if (!ownerId) return setStatus("pickupsStatus", "OwnerId not found. Go to Login.");
+      if (!customerId) return setStatus("pickupsStatus", "Select a customer first.");
+      if (!dueDate) return setStatus("pickupsStatus", "Pick a due date.");
+
+      setStatus("pickupsStatus", "Adding pickup...");
+      const res = await fetch(`/api/pickups/add`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ownerId: Number(ownerId), customerId: Number(customerId), dueDate })
+      });
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        setStatus("pickupsStatus", `Add failed: ${data.error || "unknown error"}`);
+        return;
+      }
+
+      setStatus("pickupsStatus", "✅ Pickup added.");
+      await refreshPickups();
+    }
+
+    async function markPickedUp(pickupId) {
+      const ownerId = getOwnerId();
+      if (!ownerId) return setStatus("pickupsStatus", "OwnerId not found. Go to Login.");
+
+      setStatus("pickupsStatus", "Marking picked up...");
+      const res = await fetch(`/api/pickups/mark-picked-up`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ownerId: Number(ownerId), pickupId: Number(pickupId) })
+      });
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        setStatus("pickupsStatus", `Update failed: ${data.error || "unknown error"}`);
+        return;
+      }
+
+      setStatus("pickupsStatus", "✅ Marked picked up.");
+      await refreshPickups();
+    }
+
+    // -------------------------
+    // Timezone
+    // -------------------------
+    async function loadTimezone() {
+      const ownerId = getOwnerId();
+      if (!ownerId) return setStatus("timezoneStatus", "OwnerId not found. Go to Login.");
+
+      const res = await fetch(`/api/users/get-timezone?ownerId=${encodeURIComponent(ownerId)}`);
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        setStatus("timezoneStatus", `Timezone load failed: ${data.error || "unknown error"}`);
+        return;
+      }
+
+      document.getElementById("timezoneSelect").value = data.timezone;
+      setStatus("timezoneStatus", `Current: ${data.timezone}`);
+    }
+
+    async function saveTimezone() {
+      const ownerId = getOwnerId();
+      const timezone = document.getElementById("timezoneSelect").value;
+
+      if (!ownerId) return setStatus("timezoneStatus", "OwnerId not found. Go to Login.");
+      setStatus("timezoneStatus", "Saving...");
+
+      const res = await fetch(`/api/users/set-timezone`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ownerId: Number(ownerId), timezone }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        setStatus("timezoneStatus", `Save failed: ${data.error || "unknown error"}`);
+        return;
+      }
+
+      setStatus("timezoneStatus", `Saved: ${data.timezone}`);
+    }
+
+    // -------------------------
+    // Billing
+    // -------------------------
+    async function openCustomerPortal() {
+      const ownerId = getOwnerId();
+      if (!ownerId) return setStatus("billingStatus", "OwnerId not found. Go to Login.");
+
+      setStatus("billingStatus", "Opening billing portal...");
+      const res = await fetch(`/stripe/create-portal-session`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ownerId: Number(ownerId) }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.url) {
+        setStatus("billingStatus", `Portal failed: ${data.error || "unknown error"}`);
+        return;
+      }
+
+      window.location.href = data.url;
+    }
+
+    function goToChoosePlan() {
+      window.location.href = "/choose-plan.html";
+    }
+
+    // -------------------------
+    // Logout
+    // -------------------------
+    function logout() {
+      localStorage.removeItem("ownerId");
+      localStorage.removeItem("owner_id");
+      window.location.href = "/";
+    }
+
+    document.addEventListener("DOMContentLoaded", async () => {
+      const ownerId = getOwnerId();
+      document.getElementById("ownerIdLabel").textContent = ownerId || "—";
+
+      document.getElementById("logoutBtn").addEventListener("click", logout);
+
+      document.getElementById("addCustomerBtn").addEventListener("click", addCustomer);
+      document.getElementById("refreshCustomersBtn").addEventListener("click", () => refreshCustomers());
+
+      document.getElementById("addPickupBtn").addEventListener("click", addPickup);
+      document.getElementById("refreshPickupsBtn").addEventListener("click", refreshPickups);
+      document.getElementById("pickupStatusFilter").addEventListener("change", refreshPickups);
+
+      document.getElementById("saveTimezoneBtn").addEventListener("click", saveTimezone);
+
+      document.getElementById("manageBillingBtn").addEventListener("click", openCustomerPortal);
+      document.getElementById("changePlanBtn").addEventListener("click", goToChoosePlan);
+
+      // Default due date to today (nice UX)
+      const d = new Date();
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, "0");
+      const dd = String(d.getDate()).padStart(2, "0");
+      document.getElementById("pickupDueDate").value = `${yyyy}-${mm}-${dd}`;
+
+      await updateSubBadge();
+      await loadTimezone();
+      await refreshCustomers();
+      await refreshPickups();
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,28 @@
+{
+  "name": "mylaundryreminder_backend1",
+  "version": "1.0.0",
+  "description": "Backend for MyLaundryReminder service",
+  "keywords": [
+    "laundry",
+    "backend",
+    "reminder"
+  ],
+  "license": "ISC",
+  "author": "ISC",
+  "type": "commonjs",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "bcrypt": "^6.0.0",
+    "cors": "^2.8.6",
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
+    "luxon": "^3.7.2",
+    "node-cron": "^4.2.1",
+    "sqlite3": "^5.1.7",
+    "stripe": "^20.4.0",
+    "twilio": "^5.12.2"
+  }
+}
