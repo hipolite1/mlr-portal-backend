@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>MLR - Add Pickup</title>
-  <link rel="stylesheet" href="/style.css" />
+  <title>MLR - Pickups</title>
+  <link rel="stylesheet" href="/style.css?v=6" />
 </head>
 <body>
   <div class="container">
@@ -12,17 +12,18 @@
       <div class="brand">
         <div class="logo"></div>
         <div>
-          <h1>Add Pickup</h1>
-          <p>Create a pickup reminder (MVP)</p>
+          <h1>Pickups</h1>
+          <p>Add + manage pickup reminders (MVP)</p>
         </div>
       </div>
       <span class="badge">Portal</span>
     </div>
 
     <div class="grid">
-      <div class="card">
-        <h2>Pickup details</h2>
-        <p class="sub">Enter the customer and pickup due date. (We’ll wire this to DB + reminders next.)</p>
+      <!-- LEFT: Add form (will hide after save) -->
+      <div class="card" id="formCard">
+        <h2>Add Pickup</h2>
+        <p class="sub">Enter customer details once, then it appears in your table.</p>
 
         <label for="custName">Customer Name</label>
         <input id="custName" placeholder="John Doe" />
@@ -34,86 +35,207 @@
         <input id="dueDate" type="date" />
 
         <div class="row" style="margin-top:14px;">
-          <button class="btn primary" id="saveBtn" type="button">Save Pickup</button>
-          <button class="btn" id="backBtn" type="button">Back</button>
+          <button class="btn primary" type="button" onclick="savePickup()">Save Pickup</button>
+          <button class="btn" type="button" onclick="goBack()">Back</button>
         </div>
 
-        <div class="status" id="statusBox" style="margin-top:14px;">Fill the form and click Save.</div>
+        <div class="status" id="statusBox" style="margin-top:14px;">
+          Fill the form and click <b>Save Pickup</b>.
+        </div>
       </div>
 
+      <!-- RIGHT: Table -->
       <div class="card">
-        <h2>Your session</h2>
+        <h2>Pickup Table</h2>
         <p class="sub" id="ownerLine">Loading…</p>
-        <div class="status">
-          Next: we connect this form to a backend endpoint like <b>/api/pickups</b> and store to SQLite,
-          then the cron reminder engine uses those pickups.
+
+        <div class="row" style="margin-bottom:12px;">
+          <button class="btn primary" type="button" onclick="showForm()">➕ Add Another Pickup</button>
+          <button class="btn" type="button" onclick="refreshTable()">↻ Refresh</button>
+        </div>
+
+        <div id="tableWrap" class="status" style="padding:14px 12px; overflow:auto;">
+          Loading…
         </div>
       </div>
     </div>
   </div>
 
   <script>
-    function requireOwner() {
+    function session() {
       const ownerId = localStorage.getItem("ownerId");
       const loginId = localStorage.getItem("loginId");
-      if (!ownerId || !loginId) {
-        window.location.href = "/login.html";
-        return null;
-      }
       return { ownerId, loginId };
     }
 
-    function setStatus(type, msg) {
+    function requireSession() {
+      const s = session();
+      if (!s.ownerId || !s.loginId) {
+        window.location.href = "/login.html";
+        return null;
+      }
+      return s;
+    }
+
+    function keyFor(ownerId) {
+      return `mlr_pickups_owner_${ownerId}`;
+    }
+
+    function getPickups(ownerId) {
+      return JSON.parse(localStorage.getItem(keyFor(ownerId)) || "[]");
+    }
+
+    function setPickups(ownerId, list) {
+      localStorage.setItem(keyFor(ownerId), JSON.stringify(list));
+    }
+
+    function escapeHtml(str) {
+      return String(str)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    function formatDate(v) {
+      try {
+        const d = new Date(v);
+        if (Number.isNaN(d.getTime())) return String(v || "");
+        return d.toDateString();
+      } catch { return String(v || ""); }
+    }
+
+    function goBack() {
+      window.location.href = "/dashboard.html";
+    }
+
+    function setStatus(type, html) {
       const box = document.getElementById("statusBox");
       box.className = type ? `status ${type}` : "status";
-      box.innerHTML = msg;
+      box.innerHTML = html;
+    }
+
+    function hideForm() {
+      document.getElementById("formCard").style.display = "none";
+    }
+
+    function showForm() {
+      document.getElementById("formCard").style.display = "block";
+      setStatus("", 'Fill the form and click <b>Save Pickup</b>.');
+      document.getElementById("custName").focus();
+    }
+
+    function clearForm() {
+      document.getElementById("custName").value = "";
+      document.getElementById("custPhone").value = "";
+      document.getElementById("dueDate").value = "";
+    }
+
+    function deletePickup(displayIndex) {
+      const s = requireSession();
+      if (!s) return;
+
+      // We show newest first, but store oldest first. Use displayed list.
+      const stored = getPickups(s.ownerId);        // oldest -> newest
+      const display = stored.slice().reverse();    // newest -> oldest
+
+      if (displayIndex < 0 || displayIndex >= display.length) return;
+      display.splice(displayIndex, 1);
+
+      const updated = display.slice().reverse();
+      setPickups(s.ownerId, updated);
+      renderTable(updated);
+    }
+
+    function renderTable(list) {
+      const wrap = document.getElementById("tableWrap");
+
+      if (!list.length) {
+        wrap.className = "status";
+        wrap.style.padding = "14px 12px";
+        wrap.innerHTML = 'No pickups yet. Click <b>Add Another Pickup</b>.';
+        return;
+      }
+
+      const display = list.slice().reverse(); // newest first
+
+      const rows = display.map((p, i) => `
+        <tr>
+          <td style="padding:12px; border-bottom:1px solid rgba(15,23,42,.10);">
+            <b>${escapeHtml(p.name || "")}</b><br>
+            <span style="opacity:.85;">${escapeHtml(p.phone || "")}</span>
+          </td>
+          <td style="padding:12px; border-bottom:1px solid rgba(15,23,42,.10);">
+            ${escapeHtml(formatDate(p.dueDate))}
+          </td>
+          <td style="padding:12px; border-bottom:1px solid rgba(15,23,42,.10); text-align:right;">
+            <button class="btn" type="button" onclick="deletePickup(${i})">Delete</button>
+          </td>
+        </tr>
+      `).join("");
+
+      wrap.className = "";
+      wrap.style.padding = "0";
+      wrap.innerHTML = `
+        <table style="width:100%; border-collapse:collapse;">
+          <thead>
+            <tr>
+              <th style="text-align:left; padding:12px; border-bottom:1px solid rgba(15,23,42,.12);">Customer</th>
+              <th style="text-align:left; padding:12px; border-bottom:1px solid rgba(15,23,42,.12);">Due</th>
+              <th style="text-align:right; padding:12px; border-bottom:1px solid rgba(15,23,42,.12);">Action</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      `;
+    }
+
+    function refreshTable() {
+      const s = requireSession();
+      if (!s) return;
+
+      document.getElementById("ownerLine").innerHTML =
+        `Logged in as <b>${escapeHtml(s.loginId)}</b> (Owner ID: <b>${escapeHtml(s.ownerId)}</b>)`;
+
+      const list = getPickups(s.ownerId);
+      renderTable(list);
+    }
+
+    function savePickup() {
+      const s = requireSession();
+      if (!s) return;
+
+      const name = document.getElementById("custName").value.trim();
+      const phone = document.getElementById("custPhone").value.trim();
+      const dueDate = document.getElementById("dueDate").value;
+
+      if (!name || !phone || !dueDate) {
+        setStatus("err", "Please fill <b>Customer Name</b>, <b>Phone</b>, and <b>Due Date</b>.");
+        return;
+      }
+
+      const list = getPickups(s.ownerId);
+      list.push({ name, phone, dueDate, createdAt: new Date().toISOString() });
+      setPickups(s.ownerId, list);
+
+      clearForm();
+      setStatus("ok", "✅ Pickup saved. Showing your table…");
+
+      // ✅ No redundancy: after save, hide form and show table
+      refreshTable();
+      hideForm();
     }
 
     document.addEventListener("DOMContentLoaded", () => {
-      const info = requireOwner();
-      if (!info) return;
+      const s = requireSession();
+      if (!s) return;
 
-      document.getElementById("ownerLine").innerHTML =
-        `Logged in as <b>${info.loginId}</b> (Owner ID: <b>${info.ownerId}</b>)`;
+      refreshTable();
 
-      document.getElementById("backBtn").addEventListener("click", () => {
-        window.location.href = "/dashboard.html";
-      });
-
-      document.getElementById("saveBtn").addEventListener("click", () => {
-        const name = document.getElementById("custName").value.trim();
-        const phone = document.getElementById("custPhone").value.trim();
-        const dueDate = document.getElementById("dueDate").value;
-
-        if (!name || !phone || !dueDate) {
-          setStatus("err", "Please fill <b>Customer Name</b>, <b>Phone</b>, and <b>Due Date</b>.");
-          return;
-        }
-
-        try {
-          // MVP: store locally for now, until we wire /api/pickups
-          const key = `mlr_pickups_owner_${info.ownerId}`;
-          const existing = JSON.parse(localStorage.getItem(key) || "[]");
-
-          existing.push({
-            name,
-            phone,
-            dueDate,
-            createdAt: new Date().toISOString()
-          });
-
-          localStorage.setItem(key, JSON.stringify(existing));
-
-          setStatus("ok", `✅ Pickup saved.<br><span style="opacity:.85;">Customer: <b>${name}</b> — Due: <b>${dueDate}</b></span>`);
-
-          // Clear inputs
-          document.getElementById("custName").value = "";
-          document.getElementById("custPhone").value = "";
-          document.getElementById("dueDate").value = "";
-        } catch (e) {
-          setStatus("err", `Save failed: ${e.message}`);
-        }
-      });
+      // Optional: if they already have pickups, start with table view
+      const list = getPickups(s.ownerId);
+      if (list.length) hideForm();
     });
   </script>
 </body>
