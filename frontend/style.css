@@ -29,11 +29,18 @@ body{
   /* 🔥 BIGGER BASE SIZE */
   font-size: 22px;
   line-height: 1.5;
+
+  /* ✅ Prevent sideways scroll after scaling */
+  overflow-x: hidden;
 }
 
 .container{
   /* 🔥 Use most of screen */
   width: min(98vw, 1800px);
+
+  /* ✅ Global scale multiplier (SAFE) */
+  transform: scale(1.22);
+  transform-origin: top center;
 }
 
 /* ===============================
