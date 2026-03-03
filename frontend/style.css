@@ -1,5 +1,5 @@
 /* ===============================
-   MLR PORTAL — LARGE PRO UI
+   MLR PORTAL — LARGE PRO UI (900 SIZE)
 ================================= */
 
 :root{
@@ -24,23 +24,22 @@ body{
   justify-content: center;
   align-items: flex-start;
 
-  padding: 40px 30px;
+  padding: 60px 40px;
 
-  /* 🔥 BIGGER BASE SIZE */
   font-size: 22px;
-  line-height: 1.5;
+  line-height: 1.6;
 
-  /* ✅ Prevent sideways scroll after scaling */
   overflow-x: hidden;
 }
 
 .container{
-  /* 🔥 Use most of screen */
   width: min(98vw, 1800px);
 
-  /* ✅ Global scale multiplier (SAFE) */
-  transform: scale(1.22);
+  /* 🔥 900 SIZE LOCKED */
+  transform: scale(1.50);
   transform-origin: top center;
+
+  margin-top: 40px;
 }
 
 /* ===============================
@@ -50,9 +49,9 @@ body{
 .header{
   background: #fff;
   border: 1px solid var(--border);
-  padding: 42px 60px;
-  border-radius: 26px;
-  margin-bottom: 32px;
+  padding: 60px 80px;
+  border-radius: 28px;
+  margin-bottom: 40px;
 
   display: flex;
   justify-content: space-between;
@@ -63,22 +62,22 @@ body{
 
 .brand h1{
   margin: 0;
-  font-size: 48px;  /* 🔥 BIG */
+  font-size: 56px;
   letter-spacing: -0.5px;
 }
 
 .brand p{
-  margin: 10px 0 0 0;
+  margin: 14px 0 0 0;
   color: var(--muted);
-  font-size: 22px;
+  font-size: 24px;
 }
 
 .badge{
   background: var(--mlr-blue);
   color: #fff;
-  padding: 14px 26px;
+  padding: 16px 30px;
   border-radius: 999px;
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 900;
 }
 
@@ -89,10 +88,10 @@ body{
 .grid{
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 30px;
+  gap: 40px;
 }
 
-@media (max-width: 1200px){
+@media (max-width: 1400px){
   .grid{ grid-template-columns: 1fr; }
 }
 
@@ -103,20 +102,20 @@ body{
 .card{
   background: #fff;
   border: 1px solid var(--border);
-  padding: 48px;
-  border-radius: 26px;
+  padding: 60px;
+  border-radius: 28px;
   box-shadow: var(--shadow);
 }
 
 .card h2{
-  margin: 0 0 14px 0;
-  font-size: 36px;  /* 🔥 BIG */
+  margin: 0 0 20px 0;
+  font-size: 40px;
 }
 
 .sub{
-  margin: 0 0 28px 0;
+  margin: 0 0 36px 0;
   color: var(--muted);
-  font-size: 22px;
+  font-size: 24px;
 }
 
 /* ===============================
@@ -126,26 +125,26 @@ body{
 label{
   font-weight: 900;
   display: block;
-  margin-top: 14px;
-  font-size: 18px;
+  margin-top: 20px;
+  font-size: 22px;
 }
 
 input{
   width: 100%;
-  padding: 20px 22px;
-  margin-top: 10px;
-  margin-bottom: 24px;
+  padding: 24px 26px;
+  margin-top: 12px;
+  margin-bottom: 28px;
 
-  border-radius: 16px;
+  border-radius: 18px;
   border: 1px solid rgba(15,23,42,.14);
 
-  font-size: 22px;
+  font-size: 24px;
 }
 
 input:focus{
   outline: none;
   border-color: var(--mlr-blue);
-  box-shadow: 0 0 0 5px rgba(37,99,235,.12);
+  box-shadow: 0 0 0 6px rgba(37,99,235,.12);
 }
 
 /* ===============================
@@ -154,18 +153,18 @@ input:focus{
 
 .row{
   display: flex;
-  gap: 16px;
+  gap: 20px;
   flex-wrap: wrap;
 }
 
 .btn{
-  padding: 18px 32px;
-  border-radius: 16px;
+  padding: 22px 40px;
+  border-radius: 18px;
   border: 1px solid rgba(15,23,42,.12);
   cursor: pointer;
 
   font-weight: 900;
-  font-size: 20px;
+  font-size: 24px;
 
   background: #fff;
   color: var(--text);
@@ -180,8 +179,8 @@ input:focus{
 }
 
 .btn:hover{
-  transform: translateY(-3px);
-  box-shadow: 0 16px 40px rgba(15,23,42,.12);
+  transform: translateY(-4px);
+  box-shadow: 0 18px 50px rgba(15,23,42,.15);
 }
 
 /* ===============================
@@ -189,9 +188,9 @@ input:focus{
 ================================= */
 
 .status{
-  padding: 20px 24px;
-  border-radius: 16px;
-  font-size: 20px;
+  padding: 26px 30px;
+  border-radius: 18px;
+  font-size: 24px;
   background: #f1f5f9;
   border: 1px solid rgba(15,23,42,.08);
 }
@@ -203,17 +202,18 @@ input:focus{
 table{
   width: 100%;
   border-collapse: collapse;
+  margin-top: 20px;
 }
 
 th{
   text-align: left;
-  padding: 20px;
-  font-size: 20px;
+  padding: 24px;
+  font-size: 24px;
   border-bottom: 1px solid rgba(15,23,42,.14);
 }
 
 td{
-  padding: 20px;
-  font-size: 20px;
+  padding: 24px;
+  font-size: 24px;
   border-bottom: 1px solid rgba(15,23,42,.08);
 }
