@@ -1,65 +1,164 @@
-<script>
-function getSession() {
-  return {
-    ownerId: localStorage.getItem("ownerId"),
-    loginId: localStorage.getItem("loginId")
-  };
-}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MLR - Dashboard</title>
+  <link rel="stylesheet" href="/style.css?v=9" />
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="brand">
+        <div class="logo"></div>
+        <div>
+          <h1>MyLaundryReminder</h1>
+          <p>Subscriber Dashboard</p>
+        </div>
+      </div>
+      <span class="badge">Portal</span>
+    </div>
 
-function getPickups(ownerId) {
-  const key = `mlr_pickups_owner_${ownerId}`;
-  return JSON.parse(localStorage.getItem(key) || "[]");
-}
+    <div class="grid">
+      <div class="card">
+        <h2>Account</h2>
+        <p class="sub" id="ownerLine">Loading…</p>
 
-function renderTable() {
-  const { ownerId, loginId } = getSession();
-  const wrap = document.getElementById("tableWrap");
-  const ownerLine = document.getElementById("ownerLine");
+        <div class="row" style="margin-top:14px;">
+          <button class="btn primary" type="button" onclick="goPickups()">Pickups</button>
+          <button class="btn" type="button" onclick="refresh()">Refresh</button>
+          <button class="btn" type="button" onclick="logout()">Logout</button>
+        </div>
 
-  if (!ownerId) {
-    wrap.innerHTML = "Not logged in.";
-    return;
-  }
+        <div class="status" id="dashStatus" style="margin-top:14px;">
+          Ready.
+        </div>
+      </div>
 
-  ownerLine.innerHTML =
-    `Logged in as <b>${loginId}</b> (Owner ID: <b>${ownerId}</b>)`;
+      <div class="card">
+        <h2>Quick View</h2>
+        <p class="sub">Latest pickups for this owner.</p>
 
-  const list = getPickups(ownerId);
+        <div id="tableWrap" class="status" style="padding:14px 12px; overflow:auto;">
+          Loading…
+        </div>
+      </div>
+    </div>
+  </div>
 
-  if (!list.length) {
-    wrap.innerHTML = "No pickups yet.";
-    return;
-  }
+  <script>
+    function session() {
+      return {
+        ownerId: localStorage.getItem("ownerId"),
+        loginId: localStorage.getItem("loginId"),
+      };
+    }
 
-  const rows = list.map((p, i) => `
-    <tr>
-      <td>${p.name}</td>
-      <td>${p.phone}</td>
-      <td>${p.dueDate}</td>
-      <td><button onclick="deletePickup(${i})">Delete</button></td>
-    </tr>
-  `).join("");
+    function goPickups() {
+      window.location.href = "/add-pickup.html?v=9";
+    }
 
-  wrap.innerHTML = `
-    <table style="width:100%; border-collapse:collapse;">
-      <tr>
-        <th>Name</th>
-        <th>Phone</th>
-        <th>Due</th>
-        <th>Action</th>
-      </tr>
-      ${rows}
-    </table>
-  `;
-}
+    function logout() {
+      localStorage.removeItem("ownerId");
+      localStorage.removeItem("loginId");
+      window.location.href = "/login.html?ts=" + Date.now();
+    }
 
-function deletePickup(i) {
-  const { ownerId } = getSession();
-  const list = getPickups(ownerId);
-  list.splice(i, 1);
-  localStorage.setItem(`mlr_pickups_owner_${ownerId}`, JSON.stringify(list));
-  renderTable();
-}
+    function escapeHtml(str) {
+      return String(str)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
 
-document.addEventListener("DOMContentLoaded", renderTable);
-</script>
+    function keyFor(ownerId) {
+      return `mlr_pickups_owner_${ownerId}`;
+    }
+
+    function getPickups(ownerId) {
+      return JSON.parse(localStorage.getItem(keyFor(ownerId)) || "[]");
+    }
+
+    function statusPill(status) {
+      const s = String(status || "pending");
+      const done = s === "picked_up";
+      const bg = done ? "background:#dcfce7;color:#166534;" : "background:#fff7ed;color:#9a3412;";
+      const label = done ? "Picked Up" : "Pending";
+      return `<span style="${bg} padding:4px 10px; border-radius:999px; font-weight:700; font-size:12px;">${label}</span>`;
+    }
+
+    function renderTable(list) {
+      const wrap = document.getElementById("tableWrap");
+
+      if (!list.length) {
+        wrap.className = "status";
+        wrap.style.padding = "14px 12px";
+        wrap.innerHTML = 'No pickups yet. Click <b>Pickups</b> to add your first one.';
+        return;
+      }
+
+      const display = list.slice().reverse().slice(0, 8); // newest first, show last 8
+
+      const rows = display.map(p => `
+        <tr>
+          <td style="padding:12px; border-bottom:1px solid rgba(15,23,42,.10);">
+            <b>${escapeHtml(p.name || "")}</b><br>
+            <span style="opacity:.85;">${escapeHtml(p.phone || "")}</span>
+          </td>
+          <td style="padding:12px; border-bottom:1px solid rgba(15,23,42,.10);">
+            ${escapeHtml(p.dueDate || "")}
+          </td>
+          <td style="padding:12px; border-bottom:1px solid rgba(15,23,42,.10);">
+            ${statusPill(p.status)}
+          </td>
+        </tr>
+      `).join("");
+
+      wrap.className = "";
+      wrap.style.padding = "0";
+      wrap.innerHTML = `
+        <table style="width:100%; border-collapse:collapse;">
+          <thead>
+            <tr>
+              <th style="text-align:left; padding:12px; border-bottom:1px solid rgba(15,23,42,.12);">Customer</th>
+              <th style="text-align:left; padding:12px; border-bottom:1px solid rgba(15,23,42,.12);">Due</th>
+              <th style="text-align:left; padding:12px; border-bottom:1px solid rgba(15,23,42,.12);">Status</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      `;
+    }
+
+    function refresh() {
+      const s = session();
+
+      // IMPORTANT: do NOT show blank page if session missing
+      if (!s.ownerId || !s.loginId) {
+        document.getElementById("ownerLine").innerHTML =
+          `⚠️ Session missing. Please login.`;
+        document.getElementById("dashStatus").className = "status err";
+        document.getElementById("dashStatus").innerHTML =
+          `You are not logged in.<br><br><button class="btn primary" type="button" onclick="window.location.href='/login.html?ts='+Date.now()">Go to Login</button>`;
+        document.getElementById("tableWrap").innerHTML = "No session.";
+        return;
+      }
+
+      document.getElementById("ownerLine").innerHTML =
+        `Logged in as <b>${escapeHtml(s.loginId)}</b> (Owner ID: <b>${escapeHtml(s.ownerId)}</b>)`;
+
+      const list = getPickups(s.ownerId);
+      renderTable(list);
+
+      const ds = document.getElementById("dashStatus");
+      ds.className = "status ok";
+      ds.innerHTML = `✅ Loaded <b>${list.length}</b> pickup(s).`;
+      setTimeout(() => { ds.className = "status"; }, 1200);
+    }
+
+    document.addEventListener("DOMContentLoaded", refresh);
+  </script>
+</body>
+</html>
