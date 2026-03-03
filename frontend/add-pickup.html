@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>MLR - Pickups</title>
-  <link rel="stylesheet" href="/style.css?v=6" />
+  <link rel="stylesheet" href="/style.css?v=7" />
 </head>
 <body>
   <div class="container">
@@ -132,16 +132,40 @@
       document.getElementById("dueDate").value = "";
     }
 
+    function statusPill(status) {
+      const s = String(status || "pending");
+      const isDone = s === "picked_up";
+      const bg = isDone ? "background:#dcfce7;color:#166534;" : "background:#fff7ed;color:#9a3412;";
+      const label = isDone ? "Picked Up" : "Pending";
+      return `<span style="${bg} padding:4px 10px; border-radius:999px; font-weight:700; font-size:12px;">${label}</span>`;
+    }
+
     function deletePickup(displayIndex) {
       const s = requireSession();
       if (!s) return;
 
-      // We show newest first, but store oldest first. Use displayed list.
       const stored = getPickups(s.ownerId);        // oldest -> newest
       const display = stored.slice().reverse();    // newest -> oldest
 
       if (displayIndex < 0 || displayIndex >= display.length) return;
       display.splice(displayIndex, 1);
+
+      const updated = display.slice().reverse();
+      setPickups(s.ownerId, updated);
+      renderTable(updated);
+    }
+
+    function markPickedUp(displayIndex) {
+      const s = requireSession();
+      if (!s) return;
+
+      const stored = getPickups(s.ownerId);        // oldest -> newest
+      const display = stored.slice().reverse();    // newest -> oldest
+
+      if (displayIndex < 0 || displayIndex >= display.length) return;
+
+      display[displayIndex].status = "picked_up";
+      display[displayIndex].pickedUpAt = new Date().toISOString();
 
       const updated = display.slice().reverse();
       setPickups(s.ownerId, updated);
@@ -160,20 +184,27 @@
 
       const display = list.slice().reverse(); // newest first
 
-      const rows = display.map((p, i) => `
-        <tr>
-          <td style="padding:12px; border-bottom:1px solid rgba(15,23,42,.10);">
-            <b>${escapeHtml(p.name || "")}</b><br>
-            <span style="opacity:.85;">${escapeHtml(p.phone || "")}</span>
-          </td>
-          <td style="padding:12px; border-bottom:1px solid rgba(15,23,42,.10);">
-            ${escapeHtml(formatDate(p.dueDate))}
-          </td>
-          <td style="padding:12px; border-bottom:1px solid rgba(15,23,42,.10); text-align:right;">
-            <button class="btn" type="button" onclick="deletePickup(${i})">Delete</button>
-          </td>
-        </tr>
-      `).join("");
+      const rows = display.map((p, i) => {
+        const done = (p.status === "picked_up");
+        return `
+          <tr>
+            <td style="padding:12px; border-bottom:1px solid rgba(15,23,42,.10);">
+              <b>${escapeHtml(p.name || "")}</b><br>
+              <span style="opacity:.85;">${escapeHtml(p.phone || "")}</span>
+            </td>
+            <td style="padding:12px; border-bottom:1px solid rgba(15,23,42,.10);">
+              ${escapeHtml(formatDate(p.dueDate))}
+            </td>
+            <td style="padding:12px; border-bottom:1px solid rgba(15,23,42,.10);">
+              ${statusPill(p.status)}
+            </td>
+            <td style="padding:12px; border-bottom:1px solid rgba(15,23,42,.10); text-align:right; white-space:nowrap;">
+              ${done ? "" : `<button class="btn primary" type="button" onclick="markPickedUp(${i})">Picked Up</button>`}
+              <button class="btn" type="button" onclick="deletePickup(${i})">Delete</button>
+            </td>
+          </tr>
+        `;
+      }).join("");
 
       wrap.className = "";
       wrap.style.padding = "0";
@@ -183,6 +214,7 @@
             <tr>
               <th style="text-align:left; padding:12px; border-bottom:1px solid rgba(15,23,42,.12);">Customer</th>
               <th style="text-align:left; padding:12px; border-bottom:1px solid rgba(15,23,42,.12);">Due</th>
+              <th style="text-align:left; padding:12px; border-bottom:1px solid rgba(15,23,42,.12);">Status</th>
               <th style="text-align:right; padding:12px; border-bottom:1px solid rgba(15,23,42,.12);">Action</th>
             </tr>
           </thead>
@@ -216,13 +248,19 @@
       }
 
       const list = getPickups(s.ownerId);
-      list.push({ name, phone, dueDate, createdAt: new Date().toISOString() });
+      list.push({
+        name,
+        phone,
+        dueDate,
+        status: "pending",
+        createdAt: new Date().toISOString()
+      });
+
       setPickups(s.ownerId, list);
 
       clearForm();
       setStatus("ok", "✅ Pickup saved. Showing your table…");
 
-      // ✅ No redundancy: after save, hide form and show table
       refreshTable();
       hideForm();
     }
@@ -233,7 +271,6 @@
 
       refreshTable();
 
-      // Optional: if they already have pickups, start with table view
       const list = getPickups(s.ownerId);
       if (list.length) hideForm();
     });
