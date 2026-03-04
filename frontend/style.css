@@ -1,5 +1,5 @@
 /* ===============================
-   MLR PORTAL — LARGE PRO UI (900 SIZE)
+   MLR PORTAL — LARGE PRO UI (FIT SCREEN)
 ================================= */
 
 :root{
@@ -24,7 +24,8 @@ body{
   justify-content: center;
   align-items: flex-start;
 
-  padding: 60px 40px;
+  /* ✅ Reduced padding so it fits screen */
+  padding: 30px 20px;
 
   font-size: 22px;
   line-height: 1.6;
@@ -35,11 +36,12 @@ body{
 .container{
   width: min(98vw, 1800px);
 
-  /* 🔥 900 SIZE LOCKED */
-  transform: scale(1.50);
+  /* ✅ Reduced scale so it fits screen */
+  transform: scale(1.18);
   transform-origin: top center;
 
-  margin-top: 40px;
+  /* ✅ Reduced top spacing */
+  margin-top: 10px;
 }
 
 /* ===============================
