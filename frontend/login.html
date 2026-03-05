@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>MyLaundryReminder - Login</title>
-  <link rel="stylesheet" href="/style.css?v=404" />
+  <link rel="stylesheet" href="/style.css?v=405" />
 </head>
 <body>
   <div class="container">
@@ -24,7 +24,7 @@
       <div class="card">
         <h2>Create Account</h2>
         <p class="sub" id="createSubtitle">
-          Use your phone + password. We’ll generate a Login ID for you.
+          Create your owner account. (Customers are added on the Add Pickup page.)
         </p>
 
         <div class="status" id="paidBanner" style="display:none; margin-bottom:16px;">
@@ -33,6 +33,10 @@
             Owner ID from payment: <b id="paidOwnerId"></b>
           </div>
         </div>
+
+        <!-- ✅ NEW: Business/Owner Name -->
+        <label for="bizName">Business / Owner Name (optional)</label>
+        <input id="bizName" placeholder="Hipolite Cleaners" />
 
         <label for="createPhone">Phone</label>
         <input id="createPhone" placeholder="+14165550123" />
@@ -46,7 +50,7 @@
         </div>
 
         <div class="status" id="createStatus" style="margin-top:14px;">
-          Note: If you already paid, create your account here and then continue to dashboard.
+          Tip: If you already paid, create your account here and then continue to dashboard.
         </div>
 
         <div class="row" style="margin-top:14px; display:none;" id="afterCreateRow">
@@ -75,6 +79,11 @@
         <div class="status" id="loginStatus" style="margin-top:14px;">
           If your subscription is inactive, you’ll be asked to subscribe.
         </div>
+
+        <div class="status" style="margin-top:14px;">
+          ✅ Add customers/pickups here: <b>/add-pickup.html</b><br/>
+          (This page is only for owner account creation + login.)
+        </div>
       </div>
     </div>
   </div>
@@ -97,6 +106,10 @@
     function saveSession(ownerId, loginId) {
       localStorage.setItem("ownerId", String(ownerId));
       localStorage.setItem("loginId", String(loginId));
+
+      // Save business/owner name (optional)
+      const biz = document.getElementById("bizName").value.trim();
+      if (biz) localStorage.setItem("businessName", biz);
     }
 
     function showPaidUI() {
@@ -112,6 +125,7 @@
     }
 
     async function createAccount() {
+      const biz = document.getElementById("bizName").value.trim();
       const phone = document.getElementById("createPhone").value.trim();
       const password = document.getElementById("createPassword").value.trim();
       const status = document.getElementById("createStatus");
@@ -127,10 +141,13 @@
 
       setBox(status, "", "Creating account…");
 
-      // ✅ CRITICAL: if coming from Stripe success, include ownerId so backend upgrades that row
       const payload = { phone, password };
+      // ✅ Paid-user fix: upgrade paid owner row
       const paidOwnerId = safeOwnerId();
       if (paid === "1" && paidOwnerId) payload.ownerId = paidOwnerId;
+
+      // Optional extra (backend will ignore if not used)
+      if (biz) payload.businessName = biz;
 
       try {
         const res = await fetch("/api/create-account", {
@@ -149,30 +166,33 @@
         const ownerId = data.ownerId || paidOwnerId;
         const loginId = data.loginId;
 
-        // Save session for dashboard
         saveSession(ownerId, loginId);
 
-        // Show login info clearly (do NOT auto-redirect)
         setBox(status, "ok", `
           ✅ Account created.<br><br>
+          ${biz ? `<b>Business:</b> ${biz}<br>` : ``}
           <b>Owner ID:</b> ${ownerId}<br>
           <b>Login ID:</b> ${loginId}<br>
           <b>Password:</b> (the one you just set)<br><br>
           <span style="opacity:.85;">Copy your Login ID. Then continue to dashboard.</span>
         `);
 
-        // enable copy + continue
         document.getElementById("copyBtn").style.display = "inline-flex";
         document.getElementById("afterCreateRow").style.display = "flex";
 
-        // set copy payload
         document.getElementById("copyBtn").onclick = async () => {
-          const text = `MyLaundryReminder Login\nOwner ID: ${ownerId}\nLogin ID: ${loginId}\nPassword: (the one you set)\n`;
+          const text =
+`MyLaundryReminder Login
+Business: ${biz || "(not set)"}
+Owner ID: ${ownerId}
+Login ID: ${loginId}
+Password: (the one you set)
+`;
           try {
             await navigator.clipboard.writeText(text);
             setBox(status, "ok", status.innerHTML + `<br><br>📋 Copied to clipboard.`);
           } catch (e) {
-            setBox(status, "err", "Clipboard copy failed (browser blocked). Just copy the Login ID manually.");
+            setBox(status, "err", "Clipboard copy failed (browser blocked). Copy the Login ID manually.");
           }
         };
 
@@ -210,9 +230,9 @@
           return;
         }
 
-        saveSession(data.ownerId, data.loginId);
+        localStorage.setItem("ownerId", String(data.ownerId));
+        localStorage.setItem("loginId", String(data.loginId));
 
-        // If inactive, explain next step (MVP)
         const sub = String(data.subscription_status || "inactive");
         if (sub !== "trialing" && sub !== "active") {
           setBox(status, "err", `
@@ -233,6 +253,7 @@
     function clearLocal() {
       localStorage.removeItem("ownerId");
       localStorage.removeItem("loginId");
+      localStorage.removeItem("businessName");
       document.getElementById("loginIdInput").value = "";
       document.getElementById("loginPasswordInput").value = "";
       setBox(document.getElementById("loginStatus"), "", "Cleared.");
@@ -245,14 +266,13 @@
     document.addEventListener("DOMContentLoaded", () => {
       showPaidUI();
 
-      // prefill from saved session if present
+      // Prefill saved business name (optional)
+      const savedBiz = localStorage.getItem("businessName");
+      if (savedBiz) document.getElementById("bizName").value = savedBiz;
+
+      // prefill loginId if saved
       const savedLoginId = localStorage.getItem("loginId");
       if (savedLoginId) document.getElementById("loginIdInput").value = savedLoginId;
-
-      // optional: if paid ownerId exists, we can prefill phone with +1 placeholder
-      if (paid === "1" && safeOwnerId()) {
-        document.getElementById("createPhone").focus();
-      }
     });
   </script>
 </body>
