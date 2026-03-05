@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>MLR - Dashboard</title>
-  <link rel="stylesheet" href="/style.css?v=401" />
+  <link rel="stylesheet" href="/style.css?v=510" />
 </head>
 <body>
   <div class="container">
@@ -36,8 +36,8 @@
       </div>
 
       <div class="card">
-        <h2>Quick View</h2>
-        <p class="sub">Latest pickups for this owner.</p>
+        <h2>Pickups</h2>
+        <p class="sub">Excel view (DB-backed).</p>
 
         <div id="tableWrap" class="status" style="padding:14px 12px; overflow:auto;">
           Loading…
@@ -51,11 +51,12 @@
       return {
         ownerId: localStorage.getItem("ownerId"),
         loginId: localStorage.getItem("loginId"),
+        businessName: localStorage.getItem("businessName") || ""
       };
     }
 
     function goPickups() {
-      window.location.href = "/add-pickup.html?v=9";
+      window.location.href = "/add-pickup.html?v=510";
     }
 
     function logout() {
@@ -65,7 +66,7 @@
     }
 
     function escapeHtml(str) {
-      return String(str)
+      return String(str ?? "")
         .replaceAll("&", "&amp;")
         .replaceAll("<", "&lt;")
         .replaceAll(">", "&gt;")
@@ -73,48 +74,83 @@
         .replaceAll("'", "&#039;");
     }
 
-    function keyFor(ownerId) {
-      return `mlr_pickups_owner_${ownerId}`;
-    }
-
-    function getPickups(ownerId) {
-      return JSON.parse(localStorage.getItem(keyFor(ownerId)) || "[]");
-    }
-
     function statusPill(status) {
       const s = String(status || "pending");
       const done = s === "picked_up";
       const bg = done ? "background:#dcfce7;color:#166534;" : "background:#fff7ed;color:#9a3412;";
       const label = done ? "Picked Up" : "Pending";
-      return `<span style="${bg} padding:4px 10px; border-radius:999px; font-weight:700; font-size:12px;">${label}</span>`;
+      return `<span style="${bg} padding:4px 10px; border-radius:999px; font-weight:800; font-size:14px;">${label}</span>`;
     }
 
-    function renderTable(list) {
+    async function markPickedUp(id) {
+      const ds = document.getElementById("dashStatus");
+      ds.className = "status";
+      ds.textContent = "Updating status…";
+
+      try {
+        const res = await fetch(`/api/pickups/${encodeURIComponent(id)}/status`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: "picked_up" })
+        });
+
+        const data = await res.json();
+
+        if (!res.ok || !data.ok) {
+          ds.className = "status err";
+          ds.textContent = `Update failed: ${data.error || "unknown error"}`;
+          return;
+        }
+
+        ds.className = "status ok";
+        ds.textContent = "✅ Marked as picked up.";
+        await refresh();
+      } catch (e) {
+        ds.className = "status err";
+        ds.textContent = `Update failed: ${e.message}`;
+      }
+    }
+
+    function wireActionButtons() {
+      document.addEventListener("click", (e) => {
+        const btn = e.target.closest("button[data-action='picked']");
+        if (!btn) return;
+        markPickedUp(btn.dataset.id);
+      });
+    }
+
+    async function renderExcelTable(pickups) {
       const wrap = document.getElementById("tableWrap");
 
-      if (!list.length) {
+      if (!pickups || pickups.length === 0) {
         wrap.className = "status";
         wrap.style.padding = "14px 12px";
         wrap.innerHTML = 'No pickups yet. Click <b>Pickups</b> to add your first one.';
         return;
       }
 
-      const display = list.slice().reverse().slice(0, 8); // newest first, show last 8
+      const rows = pickups.map(p => {
+        // IMPORTANT: display due_date as raw string (no Date() conversion)
+        const customer_name = p.customer_name ?? p.name ?? "";
+        const customer_phone = p.customer_phone ?? p.phone ?? "";
+        const due_date = (p.due_date ?? p.dueDate ?? "").toString();
+        const status = p.status ?? "pending";
 
-      const rows = display.map(p => `
-        <tr>
-          <td style="padding:12px; border-bottom:1px solid rgba(15,23,42,.10);">
-            <b>${escapeHtml(p.name || "")}</b><br>
-            <span style="opacity:.85;">${escapeHtml(p.phone || "")}</span>
-          </td>
-          <td style="padding:12px; border-bottom:1px solid rgba(15,23,42,.10);">
-            ${escapeHtml(p.dueDate || "")}
-          </td>
-          <td style="padding:12px; border-bottom:1px solid rgba(15,23,42,.10);">
-            ${statusPill(p.status)}
-          </td>
-        </tr>
-      `).join("");
+        const actionHtml =
+          status === "picked_up"
+            ? `<span style="opacity:.7;">Done</span>`
+            : `<button class="btn primary" type="button" data-action="picked" data-id="${p.id}">Mark Picked Up</button>`;
+
+        return `
+          <tr>
+            <td style="padding:14px; border-bottom:1px solid rgba(15,23,42,.08);">${escapeHtml(customer_name)}</td>
+            <td style="padding:14px; border-bottom:1px solid rgba(15,23,42,.08);">${escapeHtml(customer_phone)}</td>
+            <td style="padding:14px; border-bottom:1px solid rgba(15,23,42,.08);">${escapeHtml(due_date)}</td>
+            <td style="padding:14px; border-bottom:1px solid rgba(15,23,42,.08);">${statusPill(status)}</td>
+            <td style="padding:14px; border-bottom:1px solid rgba(15,23,42,.08); text-align:right;">${actionHtml}</td>
+          </tr>
+        `;
+      }).join("");
 
       wrap.className = "";
       wrap.style.padding = "0";
@@ -122,9 +158,11 @@
         <table style="width:100%; border-collapse:collapse;">
           <thead>
             <tr>
-              <th style="text-align:left; padding:12px; border-bottom:1px solid rgba(15,23,42,.12);">Customer</th>
-              <th style="text-align:left; padding:12px; border-bottom:1px solid rgba(15,23,42,.12);">Due</th>
-              <th style="text-align:left; padding:12px; border-bottom:1px solid rgba(15,23,42,.12);">Status</th>
+              <th style="text-align:left; padding:14px; border-bottom:1px solid rgba(15,23,42,.14);">customer_name</th>
+              <th style="text-align:left; padding:14px; border-bottom:1px solid rgba(15,23,42,.14);">customer_phone</th>
+              <th style="text-align:left; padding:14px; border-bottom:1px solid rgba(15,23,42,.14);">due_date</th>
+              <th style="text-align:left; padding:14px; border-bottom:1px solid rgba(15,23,42,.14);">status</th>
+              <th style="text-align:right; padding:14px; border-bottom:1px solid rgba(15,23,42,.14);">action</th>
             </tr>
           </thead>
           <tbody>${rows}</tbody>
@@ -132,32 +170,63 @@
       `;
     }
 
-    function refresh() {
+    async function refresh() {
       const s = session();
 
-      // IMPORTANT: do NOT show blank page if session missing
       if (!s.ownerId || !s.loginId) {
-        document.getElementById("ownerLine").innerHTML =
-          `⚠️ Session missing. Please login.`;
-        document.getElementById("dashStatus").className = "status err";
-        document.getElementById("dashStatus").innerHTML =
+        document.getElementById("ownerLine").innerHTML = `⚠️ Session missing. Please login.`;
+        const ds = document.getElementById("dashStatus");
+        ds.className = "status err";
+        ds.innerHTML =
           `You are not logged in.<br><br><button class="btn primary" type="button" onclick="window.location.href='/login.html?ts='+Date.now()">Go to Login</button>`;
         document.getElementById("tableWrap").innerHTML = "No session.";
         return;
       }
 
+      const biz = s.businessName ? ` • <b>${escapeHtml(s.businessName)}</b>` : "";
       document.getElementById("ownerLine").innerHTML =
-        `Logged in as <b>${escapeHtml(s.loginId)}</b> (Owner ID: <b>${escapeHtml(s.ownerId)}</b>)`;
-
-      const list = getPickups(s.ownerId);
-      renderTable(list);
+        `Logged in as <b>${escapeHtml(s.loginId)}</b> (Owner ID: <b>${escapeHtml(s.ownerId)}</b>)${biz}`;
 
       const ds = document.getElementById("dashStatus");
-      ds.className = "status ok";
-      ds.innerHTML = `✅ Loaded <b>${list.length}</b> pickup(s).`;
-      setTimeout(() => { ds.className = "status"; }, 1200);
+      ds.className = "status";
+      ds.textContent = "Loading pickups from database…";
+
+      try {
+        // cache-bust so you always see latest immediately after saving
+        const res = await fetch(`/api/pickups?ownerId=${encodeURIComponent(s.ownerId)}&ts=${Date.now()}`);
+        const data = await res.json().catch(() => ({}));
+
+        if (res.status === 403) {
+          ds.className = "status err";
+          ds.innerHTML = `
+            ⚠️ ${escapeHtml(data.error || "Subscription inactive")}<br><br>
+            Please subscribe to unlock your portal.
+            <div style="margin-top:12px;">
+              <button class="btn primary" type="button" onclick="window.location.href='/choose-plan.html'">Choose a Plan</button>
+            </div>
+          `;
+          document.getElementById("tableWrap").innerHTML = "Locked.";
+          return;
+        }
+
+        if (!res.ok || !data.ok) {
+          ds.className = "status err";
+          ds.textContent = `Failed to load pickups: ${data.error || "unknown error"}`;
+          return;
+        }
+
+        await renderExcelTable(data.pickups || []);
+
+        ds.className = "status ok";
+        ds.innerHTML = `✅ Loaded <b>${(data.pickups || []).length}</b> pickup(s).`;
+        setTimeout(() => { ds.className = "status"; }, 1200);
+      } catch (e) {
+        ds.className = "status err";
+        ds.textContent = `Failed to load pickups: ${e.message}`;
+      }
     }
 
+    wireActionButtons();
     document.addEventListener("DOMContentLoaded", refresh);
   </script>
 </body>
