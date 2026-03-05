@@ -223,12 +223,12 @@ function requireActiveFromOwnerId(ownerId, res) {
 }
 function requireActive(req, res, next) {
   try {
-    const ownerId = Number(req.body.ownerId || req.query.ownerId);
+    const ownerId = Number(req.query?.ownerId ?? req.body?.ownerId);
     if (!requireActiveFromOwnerId(ownerId, res)) return;
     next();
   } catch (e) {
     console.error("requireActive error:", e.message);
-    res.status(500).json({ ok: false, error: e.message });
+    return res.status(500).json({ ok: false, error: e.message });
   }
 }
 
