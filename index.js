@@ -265,15 +265,43 @@ app.get("/login.html", (req, res) => {
 app.get("/dashboard.html", (req, res) => res.sendFile(path.join(__dirname, "frontend", "dashboard.html")));
 app.get("/add-pickup.html", (req, res) => res.sendFile(path.join(__dirname, "frontend", "add-pickup.html")));
 
-// ✅ Manual unlock for testing
+// =====================================================
+// ✅ (1) Manual unlock for testing — now "truthful"
+// - returns 404 if owner not found
+// - returns current status after update
+// =====================================================
 app.get("/api/mark-trial", (req, res) => {
   try {
     const ownerId = Number(req.query.ownerId);
     if (!ownerId) return res.status(400).json({ ok: false, error: "ownerId required" });
-    db.prepare(`UPDATE users SET subscription_status='trialing' WHERE id=?`).run(ownerId);
-    return res.json({ ok: true });
+
+    const info = db.prepare(`UPDATE users SET subscription_status='trialing' WHERE id=?`).run(ownerId);
+
+    if (info.changes === 0) {
+      return res.status(404).json({ ok: false, error: `Owner ${ownerId} not found (no rows updated)` });
+    }
+
+    const row = db.prepare(`SELECT id, loginId, phone, subscription_status FROM users WHERE id=?`).get(ownerId);
+    return res.json({ ok: true, ownerId: row.id, loginId: row.loginId, phone: row.phone, subscription_status: row.subscription_status });
   } catch (e) {
     console.error("GET /api/mark-trial error:", e.message);
+    return res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// =====================================================
+// ✅ (2) Debug: check user status quickly
+// =====================================================
+app.get("/api/debug/user-status", (req, res) => {
+  try {
+    const ownerId = Number(req.query.ownerId);
+    if (!ownerId) return res.status(400).json({ ok: false, error: "ownerId required" });
+
+    const row = db.prepare(`SELECT id, loginId, phone, subscription_status FROM users WHERE id=?`).get(ownerId);
+    if (!row) return res.json({ ok: true, exists: false, ownerId });
+
+    return res.json({ ok: true, exists: true, ...row });
+  } catch (e) {
     return res.status(500).json({ ok: false, error: e.message });
   }
 });
@@ -391,7 +419,6 @@ app.get("/api/pickups", requireActive, (req, res) => {
     return res.json({ ok: true, pickups: rows });
   } catch (e) {
     console.error("GET /api/pickups error:", e.message);
-    // This is the critical change: return the real message
     return res.status(500).json({ ok: false, error: e.message });
   }
 });
