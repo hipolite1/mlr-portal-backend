@@ -42,17 +42,40 @@ db.exec(`
 `);
 
 // =====================================================
-// ✅ Canonical Pickups Table Rebuild
-// Fixes legacy DBs where pickups has customer_id NOT NULL (cannot be altered away in SQLite).
+// ✅ Pickups table: canonical + migrations
+// - Handles legacy customer_id table (rename to pickups_legacy_...)
+// - Ensures required columns exist (customer_name, customer_phone, due_date, status, createdAt, last_reminder_sent)
 // =====================================================
 function tableExists(name) {
-  return !!db
-    .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?")
-    .get(name);
+  return !!db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(name);
 }
 
 function tableCols(table) {
   return db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
+}
+
+function addColIfMissing(table, colDefSql) {
+  const colName = colDefSql.split(/\s+/)[0];
+  const cols = tableCols(table);
+  if (!cols.includes(colName)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${colDefSql}`);
+    console.log(`✅ Added column ${table}.${colName}`);
+  }
+}
+
+function backfillIfExists(table, targetCol, candidates) {
+  const cols = tableCols(table);
+  const src = candidates.find((c) => cols.includes(c));
+  if (!src) return;
+
+  db.exec(`
+    UPDATE ${table}
+    SET ${targetCol} = ${src}
+    WHERE (${targetCol} IS NULL OR ${targetCol} = '')
+      AND ${src} IS NOT NULL
+      AND ${src} <> ''
+  `);
+  console.log(`✅ Backfilled ${table}.${targetCol} from ${src}`);
 }
 
 function createCanonicalPickupsTable() {
@@ -85,32 +108,41 @@ function ensureCanonicalPickups() {
 
   const cols = tableCols("pickups");
 
+  // Legacy schema with customer_id NOT NULL -> must rebuild
   if (cols.includes("customer_id")) {
     const legacyName = `pickups_legacy_${Date.now()}`;
     db.exec(`ALTER TABLE pickups RENAME TO ${legacyName};`);
     createCanonicalPickupsTable();
     console.log(`✅ Renamed legacy pickups -> ${legacyName} and created canonical pickups table.`);
 
+    // Best-effort migrate usable legacy rows
     try {
       const legacyCols = tableCols(legacyName);
 
+      const ownerExpr = legacyCols.includes("owner_id") ? "owner_id" : "NULL";
       const nameExpr = coalesceExpr(legacyCols, ["customer_name", "name", "customerName"], "''");
       const phoneExpr = coalesceExpr(legacyCols, ["customer_phone", "phone", "customerPhone"], "''");
       const dueExpr = coalesceExpr(legacyCols, ["due_date", "dueDate", "due"], "''");
-      const statusExpr = legacyCols.includes("status") ? "COALESCE(status, 'pending')" : "'pending'";
+      const statusExpr = legacyCols.includes("status") ? "COALESCE(status,'pending')" : "'pending'";
+      const createdExpr = legacyCols.includes("createdAt")
+        ? "createdAt"
+        : legacyCols.includes("created_at")
+        ? "created_at"
+        : "CURRENT_TIMESTAMP";
 
       const sql = `
-        INSERT INTO pickups (owner_id, customer_name, customer_phone, due_date, status)
-        SELECT owner_id,
-               ${nameExpr}  AS customer_name,
-               ${phoneExpr} AS customer_phone,
-               ${dueExpr}   AS due_date,
-               ${statusExpr} AS status
+        INSERT INTO pickups (owner_id, customer_name, customer_phone, due_date, status, createdAt)
+        SELECT ${ownerExpr},
+               ${nameExpr},
+               ${phoneExpr},
+               ${dueExpr},
+               ${statusExpr},
+               ${createdExpr}
         FROM ${legacyName}
-        WHERE owner_id IS NOT NULL
-          AND ${nameExpr}  <> ''
+        WHERE ${ownerExpr} IS NOT NULL
+          AND ${nameExpr} <> ''
           AND ${phoneExpr} <> ''
-          AND ${dueExpr}   <> ''
+          AND ${dueExpr} <> ''
       `;
       db.exec(sql);
       console.log("✅ Migrated usable legacy pickups into canonical table (best-effort).");
@@ -120,37 +152,19 @@ function ensureCanonicalPickups() {
     return;
   }
 
-  const required = [
-    ["customer_name", "customer_name TEXT"],
-    ["customer_phone", "customer_phone TEXT"],
-    ["due_date", "due_date TEXT"],
-    ["last_reminder_sent", "last_reminder_sent TEXT"],
-  ];
+  // Non-legacy: ensure all required columns exist
+  addColIfMissing("pickups", "customer_name TEXT");
+  addColIfMissing("pickups", "customer_phone TEXT");
+  addColIfMissing("pickups", "due_date TEXT");
+  addColIfMissing("pickups", "status TEXT DEFAULT 'pending'");
+  addColIfMissing("pickups", "last_reminder_sent TEXT");
+  addColIfMissing("pickups", "createdAt DATETIME DEFAULT CURRENT_TIMESTAMP");
 
-  for (const [col, def] of required) {
-    if (!cols.includes(col)) {
-      db.exec(`ALTER TABLE pickups ADD COLUMN ${def}`);
-      console.log(`✅ Added column pickups.${col}`);
-    }
-  }
-
-  const cols2 = tableCols("pickups");
-  function backfill(targetCol, candidates) {
-    const src = candidates.find((c) => cols2.includes(c));
-    if (!src) return;
-    db.exec(`
-      UPDATE pickups
-      SET ${targetCol} = ${src}
-      WHERE (${targetCol} IS NULL OR ${targetCol} = '')
-        AND ${src} IS NOT NULL
-        AND ${src} <> ''
-    `);
-    console.log(`✅ Backfilled pickups.${targetCol} from ${src}`);
-  }
-
-  backfill("customer_name", ["name", "customerName"]);
-  backfill("customer_phone", ["phone", "customerPhone"]);
-  backfill("due_date", ["dueDate", "due"]);
+  // Backfill from older naming
+  backfillIfExists("pickups", "customer_name", ["name", "customerName"]);
+  backfillIfExists("pickups", "customer_phone", ["phone", "customerPhone"]);
+  backfillIfExists("pickups", "due_date", ["dueDate", "due", "due_date_old"]);
+  backfillIfExists("pickups", "createdAt", ["created_at"]);
 
   console.log("✅ Pickups schema is canonical-ready.");
 }
@@ -158,7 +172,7 @@ function ensureCanonicalPickups() {
 ensureCanonicalPickups();
 
 // ---------------------------
-// Helpers: password hashing (no bcrypt needed)
+// Helpers: password hashing
 // ---------------------------
 function hashPassword(password) {
   return new Promise((resolve, reject) => {
@@ -186,8 +200,7 @@ function verifyPassword(password, stored) {
 }
 
 // =====================================================
-// ✅ BACKEND GATING (Step 2)
-// Allow only trialing/active to use portal APIs
+// ✅ BACKEND GATING
 // =====================================================
 function getSubStatus(ownerId) {
   const row = db.prepare(`SELECT subscription_status FROM users WHERE id=?`).get(Number(ownerId));
@@ -209,9 +222,14 @@ function requireActiveFromOwnerId(ownerId, res) {
   return true;
 }
 function requireActive(req, res, next) {
-  const ownerId = Number(req.body.ownerId || req.query.ownerId);
-  if (!requireActiveFromOwnerId(ownerId, res)) return;
-  next();
+  try {
+    const ownerId = Number(req.body.ownerId || req.query.ownerId);
+    if (!requireActiveFromOwnerId(ownerId, res)) return;
+    next();
+  } catch (e) {
+    console.error("requireActive error:", e.message);
+    res.status(500).json({ ok: false, error: e.message });
+  }
 }
 
 // ---------------------------
@@ -224,17 +242,16 @@ app.use(express.static(path.join(__dirname, "frontend")));
 // =========================
 app.get("/ping", (req, res) => res.status(200).send("ok"));
 
-// Force serve pages
+// Pages
 app.get("/", (req, res) => res.sendFile(path.join(__dirname, "frontend", "login.html")));
 app.get("/welcome.html", (req, res) => res.sendFile(path.join(__dirname, "frontend", "welcome.html")));
 app.get("/choose-plan.html", (req, res) => res.sendFile(path.join(__dirname, "frontend", "choose-plan.html")));
 
-// ✅ IMPORTANT: If coming from Stripe success, mark that owner trialing immediately
+// ✅ On Stripe success redirect, mark owner trialing (MVP)
 app.get("/login.html", (req, res) => {
   try {
     const paid = String(req.query.paid || "");
     const ownerId = Number(req.query.owner_id || req.query.ownerId || 0);
-
     if (paid === "1" && ownerId) {
       db.prepare(`UPDATE users SET subscription_status='trialing' WHERE id=?`).run(ownerId);
       console.log(`✅ Marked owner ${ownerId} as trialing (paid=1 redirect).`);
@@ -248,25 +265,31 @@ app.get("/login.html", (req, res) => {
 app.get("/dashboard.html", (req, res) => res.sendFile(path.join(__dirname, "frontend", "dashboard.html")));
 app.get("/add-pickup.html", (req, res) => res.sendFile(path.join(__dirname, "frontend", "add-pickup.html")));
 
-// =====================================================
-// MVP TEMP UNLOCK endpoint (kept for manual testing)
-// =====================================================
+// ✅ Manual unlock for testing
 app.get("/api/mark-trial", (req, res) => {
   try {
     const ownerId = Number(req.query.ownerId);
     if (!ownerId) return res.status(400).json({ ok: false, error: "ownerId required" });
-
     db.prepare(`UPDATE users SET subscription_status='trialing' WHERE id=?`).run(ownerId);
     return res.json({ ok: true });
+  } catch (e) {
+    console.error("GET /api/mark-trial error:", e.message);
+    return res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// ✅ Debug endpoint to see your schema instantly
+app.get("/api/debug/pickups-schema", (req, res) => {
+  try {
+    if (!tableExists("pickups")) return res.json({ ok: true, exists: false });
+    return res.json({ ok: true, exists: true, cols: tableCols("pickups") });
   } catch (e) {
     return res.status(500).json({ ok: false, error: e.message });
   }
 });
 
 // =====================================================
-// ✅ JSON API: CREATE ACCOUNT
-// IMPORTANT: If ownerId is provided (from Stripe success), we UPGRADE that owner row
-// instead of inserting a new inactive user.
+// ✅ CREATE ACCOUNT (upgrades paid owner row if ownerId provided)
 // =====================================================
 app.post("/api/create-account", async (req, res) => {
   try {
@@ -282,28 +305,26 @@ app.post("/api/create-account", async (req, res) => {
     const hashed = await hashPassword(password);
 
     if (ownerId) {
-      // Upgrade existing (paid) owner row
       const exists = db.prepare(`SELECT id FROM users WHERE id=?`).get(ownerId);
       if (!exists) return res.status(400).json({ ok: false, error: "ownerId not found" });
 
-      // Keep subscription_status as-is (should already be trialing after Stripe)
       db.prepare(`UPDATE users SET loginId=?, password=?, phone=? WHERE id=?`).run(loginId, hashed, phone, ownerId);
       return res.json({ ok: true, ownerId, loginId });
     }
 
-    // Normal (unpaid) signup creates inactive user
     const info = db
       .prepare(`INSERT INTO users (loginId, password, phone, subscription_status) VALUES (?, ?, ?, 'inactive')`)
       .run(loginId, hashed, phone);
 
     return res.json({ ok: true, ownerId: Number(info.lastInsertRowid), loginId });
   } catch (e) {
+    console.error("POST /api/create-account error:", e.message);
     return res.status(400).json({ ok: false, error: e.message || "Create failed" });
   }
 });
 
 // =====================================================
-// ✅ JSON API: LOGIN
+// ✅ LOGIN
 // =====================================================
 app.post("/api/login", async (req, res) => {
   try {
@@ -318,13 +339,14 @@ app.post("/api/login", async (req, res) => {
     if (!ok) return res.status(400).json({ ok: false, error: "Invalid login" });
 
     return res.json({ ok: true, ownerId: row.id, loginId: row.loginId, subscription_status: row.subscription_status });
-  } catch {
+  } catch (e) {
+    console.error("POST /api/login error:", e.message);
     return res.status(500).json({ ok: false, error: "Server error logging in" });
   }
 });
 
 // =====================================================
-// ✅ PICKUPS API (GATED)
+// ✅ PICKUPS API (gated) — IMPORTANT: returns real error messages now
 // =====================================================
 app.post("/api/pickups", requireActive, (req, res) => {
   try {
@@ -337,44 +359,40 @@ app.post("/api/pickups", requireActive, (req, res) => {
       return res.status(400).json({ ok: false, error: "ownerId, name, phone, dueDate are required" });
     }
 
-    const info = db
-      .prepare(`
-        INSERT INTO pickups (owner_id, customer_name, customer_phone, due_date, status)
-        VALUES (?, ?, ?, ?, 'pending')
-      `)
-      .run(ownerId, name, phone, dueDate);
+    const info = db.prepare(`
+      INSERT INTO pickups (owner_id, customer_name, customer_phone, due_date, status)
+      VALUES (?, ?, ?, ?, 'pending')
+    `).run(ownerId, name, phone, dueDate);
 
     return res.json({ ok: true, id: Number(info.lastInsertRowid) });
   } catch (e) {
     console.error("POST /api/pickups error:", e.message);
-    return res.status(500).json({ ok: false, error: e.message || "Failed to save pickup" });
+    return res.status(500).json({ ok: false, error: e.message });
   }
 });
 
 app.get("/api/pickups", requireActive, (req, res) => {
   try {
     const ownerId = Number(req.query.ownerId);
-    if (!ownerId) return res.status(400).json({ ok: false, error: "ownerId is required" });
-
-    const rows = db
-      .prepare(`
-        SELECT id,
-               owner_id as ownerId,
-               customer_name as name,
-               customer_phone as phone,
-               due_date as dueDate,
-               status,
-               createdAt,
-               last_reminder_sent as lastReminderSent
-        FROM pickups
-        WHERE owner_id = ?
-        ORDER BY id DESC
-      `)
-      .all(ownerId);
+    const rows = db.prepare(`
+      SELECT id,
+             owner_id as ownerId,
+             customer_name as name,
+             customer_phone as phone,
+             due_date as dueDate,
+             status,
+             createdAt,
+             last_reminder_sent as lastReminderSent
+      FROM pickups
+      WHERE owner_id = ?
+      ORDER BY id DESC
+    `).all(ownerId);
 
     return res.json({ ok: true, pickups: rows });
   } catch (e) {
-    return res.status(500).json({ ok: false, error: e.message || "Failed to fetch pickups" });
+    console.error("GET /api/pickups error:", e.message);
+    // This is the critical change: return the real message
+    return res.status(500).json({ ok: false, error: e.message });
   }
 });
 
@@ -396,13 +414,13 @@ app.patch("/api/pickups/:id/status", (req, res) => {
     db.prepare(`UPDATE pickups SET status = ? WHERE id = ?`).run(status, pickupId);
     return res.json({ ok: true });
   } catch (e) {
-    return res.status(500).json({ ok: false, error: e.message || "Failed to update status" });
+    console.error("PATCH /api/pickups/:id/status error:", e.message);
+    return res.status(500).json({ ok: false, error: e.message });
   }
 });
 
 // =====================================================
-// ✅ REMINDER ENGINE (GATED BY OWNER STATUS)
-// Only reminds owners who are trialing/active
+// ✅ REMINDER ENGINE (gated by owner status)
 // =====================================================
 const RUN_REMINDERS = String(process.env.RUN_REMINDERS || "").toLowerCase() === "true";
 const SEND_SMS = String(process.env.SEND_SMS || "").toLowerCase() === "true";
@@ -490,6 +508,7 @@ app.post("/api/reminders/run-now", async (req, res) => {
     await runRemindersOnce();
     res.json({ ok: true });
   } catch (e) {
+    console.error("POST /api/reminders/run-now error:", e.message);
     res.status(500).json({ ok: false, error: e.message });
   }
 });
@@ -503,10 +522,13 @@ app.post("/stripe/create-checkout-session", async (req, res) => {
     if (!ownerId || !plan) return res.status(400).json({ error: "Missing ownerId or plan" });
 
     const priceId =
-      plan === "single" ? process.env.STRIPE_PRICE_SINGLE :
-      plan === "growth" ? process.env.STRIPE_PRICE_GROWTH :
-      plan === "pro" ? process.env.STRIPE_PRICE_PRO :
-      null;
+      plan === "single"
+        ? process.env.STRIPE_PRICE_SINGLE
+        : plan === "growth"
+        ? process.env.STRIPE_PRICE_GROWTH
+        : plan === "pro"
+        ? process.env.STRIPE_PRICE_PRO
+        : null;
 
     if (!priceId) return res.status(400).json({ error: "Invalid plan" });
 
@@ -531,10 +553,13 @@ app.get("/stripe/checkout", (req, res) => {
     const planKey = String(req.query.plan || "").toLowerCase();
 
     const priceId =
-      planKey === "single" ? process.env.STRIPE_PRICE_SINGLE :
-      planKey === "growth" ? process.env.STRIPE_PRICE_GROWTH :
-      planKey === "pro" ? process.env.STRIPE_PRICE_PRO :
-      null;
+      planKey === "single"
+        ? process.env.STRIPE_PRICE_SINGLE
+        : planKey === "growth"
+        ? process.env.STRIPE_PRICE_GROWTH
+        : planKey === "pro"
+        ? process.env.STRIPE_PRICE_PRO
+        : null;
 
     if (!priceId) return res.status(400).send("Invalid plan (missing STRIPE_PRICE_ env)");
 
@@ -581,16 +606,4 @@ app.get("/stripe/checkout", (req, res) => {
 // Start server
 // ---------------------------
 const PORT = process.env.PORT || 3000;
-// ✅ Manual unlock for MVP testing (remove/lock before launch)
-app.get("/api/mark-trial", (req, res) => {
-  try {
-    const ownerId = Number(req.query.ownerId);
-    if (!ownerId) return res.status(400).json({ ok: false, error: "ownerId required" });
-
-    db.prepare(`UPDATE users SET subscription_status='trialing' WHERE id=?`).run(ownerId);
-    return res.json({ ok: true });
-  } catch (e) {
-    return res.status(500).json({ ok: false, error: e.message });
-  }
-});
 app.listen(PORT, () => console.log(`MLR server running on port ${PORT}`));
