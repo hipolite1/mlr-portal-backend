@@ -633,4 +633,10 @@ app.get("/stripe/checkout", (req, res) => {
 // Start server
 // ---------------------------
 const PORT = process.env.PORT || 3000;
+// Pretty URL redirects (fix broken links)
+app.get("/welcome", (req, res) => res.redirect("/welcome.html"));
+app.get("/add-pickup", (req, res) => res.redirect("/add-pickup.html"));
+app.get("/dashboard", (req, res) => res.redirect("/dashboard.html"));
+app.get("/login", (req, res) => res.redirect("/login.html"));
+app.get("/choose-plan", (req, res) => res.redirect("/choose-plan.html"));
 app.listen(PORT, () => console.log(`MLR server running on port ${PORT}`));
