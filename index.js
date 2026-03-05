@@ -225,7 +225,7 @@ function requireActive(req, res, next) {
   try {
     const ownerId = Number(req.query?.ownerId ?? req.body?.ownerId);
     if (!requireActiveFromOwnerId(ownerId, res)) return;
-    next();
+    return next();
   } catch (e) {
     console.error("requireActive error:", e.message);
     return res.status(500).json({ ok: false, error: e.message });
