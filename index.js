@@ -10,6 +10,29 @@ const twilio = require("twilio");
 
 const app = express();
 
+// =========================
+// ADMIN KEY (protect dangerous routes)
+// =========================
+const ADMIN_KEY = process.env.ADMIN_KEY || "";
+
+function requireAdmin(req, res, next) {
+  // Fail closed if missing (secure)
+  if (!ADMIN_KEY) {
+    return res.status(500).json({ ok: false, error: "ADMIN_KEY not set on server" });
+  }
+
+  // Header preferred; query param allowed for quick tests
+  const provided =
+    String(req.get("x-admin-key") || "").trim() ||
+    String(req.query.admin_key || "").trim();
+
+  if (!provided || provided !== ADMIN_KEY) {
+    return res.status(401).json({ ok: false, error: "Unauthorized (admin key required)" });
+  }
+
+  return next();
+}
+
 // ---------------------------
 // Stripe (fail-fast)
 // ---------------------------
@@ -362,7 +385,6 @@ app.post(
               const subscription = await stripe.subscriptions.retrieve(subscriptionId);
               appStatus = mapStripeSubscriptionStatus(subscription.status);
 
-              // ✅ keep it simple: if Stripe provides it, store it
               periodEnd =
                 subscription.current_period_end != null
                   ? Number(subscription.current_period_end)
@@ -381,10 +403,7 @@ app.post(
                 currentPeriodEnd: periodEnd,
               });
             } catch (subErr) {
-              console.log(
-                "🟡 Subscription retrieve failed, using fallback status:",
-                subErr.message
-              );
+              console.log("🟡 Subscription retrieve failed:", subErr.message);
               updateUserStripeCheckoutSuccess({
                 ownerId,
                 customerId,
@@ -595,7 +614,6 @@ app.get("/choose-plan.html", (req, res) =>
   res.sendFile(path.join(__dirname, "frontend", "choose-plan.html"))
 );
 
-// (This route is fine to keep; static already serves it, middleware handles paid unlock)
 app.get("/login.html", (req, res) => {
   return res.sendFile(path.join(__dirname, "frontend", "login.html"));
 });
@@ -950,7 +968,8 @@ if (RUN_REMINDERS) {
   console.log("🟡 Reminder cron disabled (RUN_REMINDERS=false)");
 }
 
-app.post("/api/reminders/run-now", async (req, res) => {
+// ✅ LOCKED: require ADMIN_KEY now
+app.post("/api/reminders/run-now", requireAdmin, async (req, res) => {
   try {
     await runRemindersOnce();
     res.json({ ok: true });
