@@ -563,8 +563,32 @@ function requireActive(req, res, next) {
 // ---------------------------
 // Static frontend
 // ---------------------------
-app.use(express.static(path.join(__dirname, "frontend")));
+// ✅ Stripe paid redirect fallback unlock (MUST run before express.static)
+app.use((req, res, next) => {
+  try {
+    if (req.path === "/login.html") {
+      const paid = String(req.query.paid || "");
+      const ownerId = Number(req.query.owner_id || req.query.ownerId || 0);
 
+      if (paid === "1" && ownerId) {
+        const row = db.prepare(`SELECT subscription_status FROM users WHERE id=?`).get(ownerId);
+
+        if (row && row.subscription_status === "inactive") {
+          db.prepare(
+            `UPDATE users SET subscription_status='trialing', updatedAt=CURRENT_TIMESTAMP WHERE id=?`
+          ).run(ownerId);
+
+          console.log(`✅ Paid redirect unlock: owner ${ownerId} -> trialing`);
+        }
+      }
+    }
+  } catch (e) {
+    console.log("🟡 Paid redirect unlock skipped:", e.message);
+  }
+
+  next();
+});
+app.use(express.static(path.join(__dirname, "frontend")));
 // =========================
 // HEALTH CHECK
 // =========================
