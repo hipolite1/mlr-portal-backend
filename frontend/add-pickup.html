@@ -16,7 +16,13 @@
           <p>Create a pickup reminder</p>
         </div>
       </div>
-      <span class="badge">Portal</span>
+
+      <!-- ✅ (2) Dashboard + ✅ (3) Logout/Exit -->
+      <div style="display:flex; gap:12px; align-items:center;">
+        <button class="btn" id="dashBtn" type="button">Dashboard</button>
+        <button class="btn" id="logoutBtn" type="button">Logout</button>
+        <span class="badge">Portal</span>
+      </div>
     </div>
 
     <div class="grid">
@@ -52,6 +58,13 @@
   </div>
 
   <script>
+    function logout() {
+      localStorage.removeItem("ownerId");
+      localStorage.removeItem("loginId");
+      localStorage.removeItem("businessName");
+      window.location.href = "/login.html?ts=" + Date.now();
+    }
+
     function requireOwner() {
       const ownerId = localStorage.getItem("ownerId");
       const loginId = localStorage.getItem("loginId");
@@ -67,6 +80,14 @@
       box.className = type ? `status ${type}` : "status";
       box.innerHTML = msg;
     }
+
+    // ✅ (2) Dashboard button
+    document.getElementById("dashBtn").addEventListener("click", () => {
+      window.location.href = "/dashboard.html?v=" + Date.now();
+    });
+
+    // ✅ (3) Logout button
+    document.getElementById("logoutBtn").addEventListener("click", logout);
 
     document.getElementById("backBtn").addEventListener("click", () => {
       window.location.href = "/dashboard.html?v=" + Date.now();
@@ -108,7 +129,10 @@
           return;
         }
 
-        setBox("ok", `✅ Pickup saved.<br>Customer: <b>${name}</b> — Due: <b>${dueDate}</b><br><span style="opacity:.85;">Opening dashboard…</span>`);
+        setBox(
+          "ok",
+          `✅ Pickup saved.<br>Customer: <b>${name}</b> — Due: <b>${dueDate}</b><br><span style="opacity:.85;">Opening dashboard…</span>`
+        );
         setTimeout(() => window.location.href = "/dashboard.html?v=" + Date.now(), 700);
       } catch (e) {
         setBox("err", `Save failed: ${e.message}`);
