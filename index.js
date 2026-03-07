@@ -268,6 +268,7 @@ function updateUserStripeCheckoutSuccess({
   }
 }
 
+// ✅ FIXED: always update by subscriptionId OR customerId OR ownerId (so period_end gets saved)
 function updateUserStripeSubscriptionStatus({
   ownerId = null,
   subscriptionId = null,
@@ -279,35 +280,8 @@ function updateUserStripeSubscriptionStatus({
 }) {
   const appStatus = mapStripeSubscriptionStatus(stripeStatus);
 
-  if (ownerId) {
-    db.prepare(
-      `
-      UPDATE users
-      SET subscription_status = ?,
-          stripe_subscription_id = COALESCE(?, stripe_subscription_id),
-          stripe_customer_id = COALESCE(?, stripe_customer_id),
-          stripe_price_id = COALESCE(?, stripe_price_id),
-          plan_name = COALESCE(?, plan_name),
-          subscription_current_period_end = COALESCE(?, subscription_current_period_end),
-          updatedAt = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `
-    ).run(
-      appStatus,
-      subscriptionId,
-      customerId,
-      priceId,
-      planName,
-      currentPeriodEnd,
-      Number(ownerId)
-    );
-
-    console.log(`✅ Subscription sync by owner ${ownerId} -> ${appStatus}`);
-    return;
-  }
-
-  if (subscriptionId) {
-    db.prepare(
+  const info = db
+    .prepare(
       `
       UPDATE users
       SET subscription_status = ?,
@@ -318,19 +292,27 @@ function updateUserStripeSubscriptionStatus({
           subscription_current_period_end = COALESCE(?, subscription_current_period_end),
           updatedAt = CURRENT_TIMESTAMP
       WHERE stripe_subscription_id = ?
+         OR stripe_customer_id = ?
+         OR id = ?
     `
-    ).run(
+    )
+    .run(
       appStatus,
       subscriptionId,
       customerId,
       priceId,
       planName,
       currentPeriodEnd,
-      subscriptionId
+      subscriptionId,
+      customerId,
+      ownerId ? Number(ownerId) : null
     );
 
-    console.log(`✅ Subscription sync by subscriptionId ${subscriptionId} -> ${appStatus}`);
-  }
+  console.log(
+    `✅ Subscription sync -> ${appStatus} (sub=${subscriptionId || "n/a"} cust=${
+      customerId || "n/a"
+    } owner=${ownerId || "n/a"} period_end=${currentPeriodEnd ?? "null"} changes=${info.changes})`
+  );
 }
 
 // =====================================================
@@ -379,7 +361,12 @@ app.post(
             try {
               const subscription = await stripe.subscriptions.retrieve(subscriptionId);
               appStatus = mapStripeSubscriptionStatus(subscription.status);
-              periodEnd = Number(subscription.current_period_end || 0) || null;
+
+              // ✅ keep it simple: if Stripe provides it, store it
+              periodEnd =
+                subscription.current_period_end != null
+                  ? Number(subscription.current_period_end)
+                  : null;
 
               const subPriceId = subscription?.items?.data?.[0]?.price?.id || null;
 
@@ -394,7 +381,10 @@ app.post(
                 currentPeriodEnd: periodEnd,
               });
             } catch (subErr) {
-              console.log("🟡 Subscription retrieve failed, using fallback status:", subErr.message);
+              console.log(
+                "🟡 Subscription retrieve failed, using fallback status:",
+                subErr.message
+              );
               updateUserStripeCheckoutSuccess({
                 ownerId,
                 customerId,
@@ -423,19 +413,19 @@ app.post(
 
         case "customer.subscription.updated":
         case "customer.subscription.deleted": {
-          const subscription = event.data.object;
+          const sub = event.data.object;
 
-          const ownerId = Number(subscription?.metadata?.owner_id || 0);
+          const ownerId = Number(sub?.metadata?.owner_id || 0);
           const customerId =
-            typeof subscription.customer === "string"
-              ? subscription.customer
-              : subscription.customer?.id || null;
+            typeof sub.customer === "string" ? sub.customer : sub.customer?.id || null;
 
-          const subscriptionId = subscription.id;
-          const stripeStatus = subscription.status;
-          const priceId = subscription?.items?.data?.[0]?.price?.id || null;
-          const planName = subscription?.metadata?.plan || null;
-          const periodEnd = Number(subscription.current_period_end || 0) || null;
+          const subscriptionId = String(sub.id);
+          const stripeStatus = String(sub.status || "");
+          const priceId = sub?.items?.data?.[0]?.price?.id || null;
+          const planName = sub?.metadata?.plan || null;
+
+          const periodEnd =
+            sub.current_period_end != null ? Number(sub.current_period_end) : null;
 
           updateUserStripeSubscriptionStatus({
             ownerId,
@@ -588,7 +578,9 @@ app.use((req, res, next) => {
 
   next();
 });
+
 app.use(express.static(path.join(__dirname, "frontend")));
+
 // =========================
 // HEALTH CHECK
 // =========================
@@ -596,29 +588,15 @@ app.get("/ping", (req, res) => res.status(200).send("ok"));
 
 // Pages
 app.get("/", (req, res) => res.sendFile(path.join(__dirname, "frontend", "login.html")));
-app.get("/welcome.html", (req, res) => res.sendFile(path.join(__dirname, "frontend", "welcome.html")));
-app.get("/choose-plan.html", (req, res) => res.sendFile(path.join(__dirname, "frontend", "choose-plan.html")));
+app.get("/welcome.html", (req, res) =>
+  res.sendFile(path.join(__dirname, "frontend", "welcome.html"))
+);
+app.get("/choose-plan.html", (req, res) =>
+  res.sendFile(path.join(__dirname, "frontend", "choose-plan.html"))
+);
 
-// ✅ PATCH: Stripe paid redirect fallback unlock (trialing)
+// (This route is fine to keep; static already serves it, middleware handles paid unlock)
 app.get("/login.html", (req, res) => {
-  try {
-    const paid = String(req.query.paid || "");
-    const ownerId = Number(req.query.owner_id || req.query.ownerId || 0);
-
-    if (paid === "1" && ownerId) {
-      const row = db.prepare(`SELECT subscription_status FROM users WHERE id=?`).get(ownerId);
-      if (row && row.subscription_status === "inactive") {
-        db.prepare(
-          `UPDATE users SET subscription_status='trialing', updatedAt=CURRENT_TIMESTAMP WHERE id=?`
-        ).run(ownerId);
-
-        console.log(`✅ Fallback unlock: owner ${ownerId} set to trialing (paid redirect)`);
-      }
-    }
-  } catch (e) {
-    console.log("🟡 paid redirect unlock skipped:", e.message);
-  }
-
   return res.sendFile(path.join(__dirname, "frontend", "login.html"));
 });
 
@@ -638,21 +616,27 @@ app.get("/api/mark-trial", (req, res) => {
     if (!ownerId) return res.status(400).json({ ok: false, error: "ownerId required" });
 
     const info = db
-      .prepare(`UPDATE users SET subscription_status='trialing', updatedAt=CURRENT_TIMESTAMP WHERE id=?`)
+      .prepare(
+        `UPDATE users SET subscription_status='trialing', updatedAt=CURRENT_TIMESTAMP WHERE id=?`
+      )
       .run(ownerId);
 
     if (info.changes === 0) {
-      return res.status(404).json({ ok: false, error: `Owner ${ownerId} not found (no rows updated)` });
+      return res
+        .status(404)
+        .json({ ok: false, error: `Owner ${ownerId} not found (no rows updated)` });
     }
 
     const row = db
-      .prepare(`
+      .prepare(
+        `
       SELECT id, loginId, phone, subscription_status,
              stripe_customer_id, stripe_subscription_id, plan_name,
              subscription_current_period_end
       FROM users
       WHERE id=?
-    `)
+    `
+      )
       .get(ownerId);
 
     return res.json({
@@ -681,7 +665,8 @@ app.get("/api/debug/user-status", (req, res) => {
     if (!ownerId) return res.status(400).json({ ok: false, error: "ownerId required" });
 
     const row = db
-      .prepare(`
+      .prepare(
+        `
       SELECT id, loginId, phone, subscription_status,
              stripe_customer_id, stripe_subscription_id,
              stripe_checkout_session_id, stripe_price_id, plan_name,
@@ -689,7 +674,8 @@ app.get("/api/debug/user-status", (req, res) => {
              activatedAt, updatedAt
       FROM users
       WHERE id=?
-    `)
+    `
+      )
       .get(ownerId);
 
     if (!row) return res.json({ ok: true, exists: false, ownerId });
@@ -763,12 +749,14 @@ app.post("/api/login", async (req, res) => {
       return res.status(400).json({ ok: false, error: "loginId and password are required" });
 
     const row = db
-      .prepare(`
+      .prepare(
+        `
       SELECT id, loginId, password, subscription_status,
              stripe_customer_id, stripe_subscription_id, plan_name
       FROM users
       WHERE loginId = ?
-    `)
+    `
+      )
       .get(loginId);
 
     if (!row) return res.status(400).json({ ok: false, error: "Invalid login" });
@@ -802,14 +790,18 @@ app.post("/api/pickups", requireActive, (req, res) => {
     const dueDate = String(req.body.dueDate || "").trim();
 
     if (!ownerId || !name || !phone || !dueDate) {
-      return res.status(400).json({ ok: false, error: "ownerId, name, phone, dueDate are required" });
+      return res
+        .status(400)
+        .json({ ok: false, error: "ownerId, name, phone, dueDate are required" });
     }
 
     const info = db
-      .prepare(`
+      .prepare(
+        `
       INSERT INTO pickups (owner_id, customer_name, customer_phone, due_date, status)
       VALUES (?, ?, ?, ?, 'pending')
-    `)
+    `
+      )
       .run(ownerId, name, phone, dueDate);
 
     return res.json({ ok: true, id: Number(info.lastInsertRowid) });
@@ -823,7 +815,8 @@ app.get("/api/pickups", requireActive, (req, res) => {
   try {
     const ownerId = Number(req.query.ownerId);
     const rows = db
-      .prepare(`
+      .prepare(
+        `
       SELECT id,
              owner_id as ownerId,
              customer_name as name,
@@ -835,7 +828,8 @@ app.get("/api/pickups", requireActive, (req, res) => {
       FROM pickups
       WHERE owner_id = ?
       ORDER BY id DESC
-    `)
+    `
+      )
       .all(ownerId);
 
     return res.json({ ok: true, pickups: rows });
@@ -912,7 +906,8 @@ async function runRemindersOnce() {
   const today = todayUTC();
 
   const rows = db
-    .prepare(`
+    .prepare(
+      `
     SELECT p.id, p.owner_id, p.customer_name, p.customer_phone, p.due_date, p.status, p.last_reminder_sent
     FROM pickups p
     JOIN users u ON u.id = p.owner_id
@@ -924,7 +919,8 @@ async function runRemindersOnce() {
       AND p.customer_name  IS NOT NULL AND p.customer_name  <> ''
     ORDER BY p.id ASC
     LIMIT 50
-  `)
+  `
+    )
     .all(today, today);
 
   if (rows.length === 0) {
@@ -1032,9 +1028,7 @@ app.get("/stripe/checkout", (req, res) => {
       .then((session) => res.redirect(session.url))
       .catch((e) => {
         console.error("Stripe session create failed:", e?.message || e);
-        res
-          .status(500)
-          .send(`Stripe checkout session failed: ${e?.message || "unknown error"}`);
+        res.status(500).send(`Stripe checkout session failed: ${e?.message || "unknown error"}`);
       });
   } catch (e) {
     console.error("checkout route error:", e?.message || e);
