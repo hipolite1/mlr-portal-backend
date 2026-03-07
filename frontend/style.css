@@ -24,8 +24,8 @@ body{
   justify-content: center;
   align-items: flex-start;
 
-  /* ✅ Reduced padding so it fits screen */
-  padding: 30px 20px;
+  /* ✅ less padding so it fits */
+  padding: 24px 16px;
 
   font-size: 22px;
   line-height: 1.6;
@@ -35,15 +35,23 @@ body{
 
 .container{
   width: min(98vw, 1800px);
-
-  /* ✅ Reduced scale so it fits screen */
-  transform: scale(1.18);
+  transform: scale(1.08);
   transform-origin: top center;
-
-  /* ✅ Reduced top spacing */
-  margin-top: 10px;
+  margin-top: 0;
 }
 
+@media (max-width: 1400px){
+  .container{
+    transform: scale(1.0);
+  }
+}
+
+/* ✅ On smaller screens, disable scaling completely */
+@media (max-width: 1400px){
+  .container{
+    transform: scale(1.0);
+  }
+}
 /* ===============================
    HEADER
 ================================= */
