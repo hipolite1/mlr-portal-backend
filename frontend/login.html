@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>MyLaundryReminder - Login</title>
-  <link rel="stylesheet" href="/style.css?v=405" />
+  <link rel="stylesheet" href="/style.css?v=520" />
 </head>
 <body>
   <div class="container">
@@ -20,269 +20,225 @@
     </div>
 
     <div class="grid">
-      <!-- Create account -->
-      <div class="card">
+      <!-- ✅ CREATE ACCOUNT (ONLY AFTER PAID CHECKOUT) -->
+      <div class="card" id="createCard" style="display:none;">
         <h2>Create Account</h2>
-        <p class="sub" id="createSubtitle">
-          Create your owner account. (Customers are added on the Add Pickup page.)
+        <p class="sub" id="paidNote">
+          You just completed checkout. Create your portal login to manage pickups.
         </p>
 
-        <div class="status" id="paidBanner" style="display:none; margin-bottom:16px;">
-          ✅ Payment detected. Create your portal login to unlock your dashboard.
-          <div style="margin-top:8px; opacity:.85;">
-            Owner ID from payment: <b id="paidOwnerId"></b>
-          </div>
-        </div>
-
-        <label for="bizName">Business / Owner Name (optional)</label>
-        <input id="bizName" placeholder="Hipolite Cleaners" />
+        <label for="businessName">Business Name</label>
+        <input id="businessName" placeholder="Key Cleaners" />
 
         <label for="createPhone">Phone</label>
         <input id="createPhone" placeholder="+14165550123" />
 
-        <label for="createPassword">Password</label>
-        <input id="createPassword" type="password" placeholder="At least 6 characters" />
+        <label for="createPass">Password</label>
+        <input id="createPass" type="password" placeholder="At least 6 characters" />
 
-        <div class="row" style="margin-top:14px;">
+        <div class="row" style="margin-top:10px;">
           <button class="btn primary" id="createBtn" type="button">Create Account</button>
-          <button class="btn" id="copyBtn" type="button" style="display:none;">Copy Login Info</button>
+          <button class="btn" id="copyBtn" type="button" style="display:none;">Copy Login ID</button>
+          <button class="btn" id="goDashBtn" type="button" style="display:none;">Continue to Dashboard</button>
         </div>
 
-        <div class="status" id="createStatus" style="margin-top:14px;">
-          Tip: If you already paid, create your account here and then continue to dashboard.
-        </div>
-
-        <div class="row" style="margin-top:14px; display:none;" id="afterCreateRow">
-          <button class="btn primary" id="goDashBtn" type="button">Continue to Dashboard</button>
-        </div>
+        <div class="status" id="createStatus" style="margin-top:14px;"> </div>
       </div>
 
-      <!-- Login -->
-      <div class="card">
+      <!-- ✅ LOGIN (DEFAULT VIEW) -->
+      <div class="card" id="loginCard">
         <h2>Login</h2>
         <p class="sub">
-          Enter your <b>Login ID</b> + <b>Password</b> to access your dashboard.
+          Enter your Login ID + password to access your dashboard.
+          <br><br>
+          New here? Subscribe first:
+          <a href="https://portal.mylaundryreminder.com/stripe/checkout?plan=growth" style="text-decoration:underline;font-weight:900;">
+            Start Free Trial
+          </a>
         </p>
 
-        <label for="loginIdInput">Login ID</label>
-        <input id="loginIdInput" placeholder="MLR12345678" />
+        <label for="loginId">Login ID</label>
+        <input id="loginId" placeholder="MLR12345678" />
 
-        <label for="loginPasswordInput">Password</label>
-        <input id="loginPasswordInput" type="password" placeholder="Your password" />
+        <label for="loginPass">Password</label>
+        <input id="loginPass" type="password" placeholder="Your password" />
 
-        <div class="row" style="margin-top:14px;">
+        <div class="row" style="margin-top:10px;">
           <button class="btn primary" id="loginBtn" type="button">Continue</button>
           <button class="btn" id="clearBtn" type="button">Clear</button>
+          <a class="btn" href="https://portal.mylaundryreminder.com/stripe/checkout?plan=growth" style="text-align:center;">
+            Subscribe
+          </a>
         </div>
 
-        <div class="status" id="loginStatus" style="margin-top:14px;">
-          If your subscription is inactive, you’ll be asked to subscribe.
-        </div>
-
-        <div class="status" style="margin-top:14px;">
-          ✅ Add customers/pickups here: <b>/add-pickup.html</b><br/>
-          (This page is only for owner account creation + login.)
-        </div>
+        <div class="status" id="loginStatus" style="margin-top:14px;"> </div>
       </div>
     </div>
   </div>
 
   <script>
-    const params = new URLSearchParams(window.location.search);
-    const paid = params.get("paid");
-    const ownerIdFromUrl = params.get("owner_id") || params.get("ownerId");
+    function qs(name) {
+      const u = new URL(window.location.href);
+      return u.searchParams.get(name);
+    }
 
-    function setBox(el, type, html) {
+    function setStatus(id, type, msg) {
+      const el = document.getElementById(id);
       el.className = type ? `status ${type}` : "status";
-      el.innerHTML = html;
+      el.innerHTML = msg;
     }
 
-    function safeOwnerId() {
-      const n = Number(ownerIdFromUrl);
-      return Number.isFinite(n) && n > 0 ? n : null;
+    function clearSession() {
+      localStorage.removeItem("ownerId");
+      localStorage.removeItem("loginId");
+      localStorage.removeItem("businessName");
     }
 
-    function goToDashboard(ownerId) {
-      const id = Number(ownerId);
-      if (!Number.isFinite(id) || id <= 0) {
-        window.location.href = "/dashboard.html";
-        return;
-      }
-      window.location.href = `/dashboard.html?ownerId=${id}`;
-    }
+    function showCreateIfPaid() {
+      const paid = qs("paid");
+      const ownerId = qs("owner_id") || qs("ownerId");
 
-    function saveSession(ownerId, loginId) {
-      localStorage.setItem("ownerId", String(ownerId));
-      localStorage.setItem("loginId", String(loginId));
-
-      const biz = document.getElementById("bizName").value.trim();
-      if (biz) localStorage.setItem("businessName", biz);
-    }
-
-    function showPaidUI() {
-      const banner = document.getElementById("paidBanner");
-      const paidOwnerEl = document.getElementById("paidOwnerId");
-
-      if (paid === "1" && safeOwnerId()) {
-        banner.style.display = "block";
-        paidOwnerEl.textContent = safeOwnerId();
-        document.getElementById("createSubtitle").textContent =
-          "Payment detected. Create your portal login (this upgrades your paid Owner ID).";
+      // ✅ Only show Create Account if user came from Stripe paid redirect
+      if (paid === "1" && ownerId) {
+        document.getElementById("createCard").style.display = "block";
+        document.getElementById("paidNote").innerHTML =
+          `✅ Checkout confirmed. Create your portal login now.<br><span style="opacity:.8;">Owner ID: <b>${ownerId}</b></span>`;
+      } else {
+        document.getElementById("createCard").style.display = "none";
       }
     }
 
     async function createAccount() {
-      const biz = document.getElementById("bizName").value.trim();
+      const paid = qs("paid");
+      const ownerId = Number(qs("owner_id") || qs("ownerId") || 0);
+
+      if (!(paid === "1" && ownerId)) {
+        setStatus("createStatus", "err", "Create Account is only available after checkout. Please subscribe first.");
+        return;
+      }
+
+      const businessName = document.getElementById("businessName").value.trim();
       const phone = document.getElementById("createPhone").value.trim();
-      const password = document.getElementById("createPassword").value.trim();
-      const status = document.getElementById("createStatus");
+      const password = document.getElementById("createPass").value.trim();
 
       if (!phone || !password) {
-        setBox(status, "err", "Please enter phone and password.");
+        setStatus("createStatus", "err", "Phone and password are required.");
         return;
       }
-
       if (password.length < 6) {
-        setBox(status, "err", "Password must be at least 6 characters.");
+        setStatus("createStatus", "err", "Password must be at least 6 characters.");
         return;
       }
 
-      setBox(status, "", "Creating account…");
-
-      const payload = { phone, password };
-      const paidOwnerId = safeOwnerId();
-
-      if (paid === "1" && paidOwnerId) {
-        payload.ownerId = paidOwnerId;
-      }
-
-      if (biz) {
-        payload.businessName = biz;
-      }
+      setStatus("createStatus", "", "Creating account…");
 
       try {
         const res = await fetch("/api/create-account", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
+          body: JSON.stringify({ ownerId, phone, password })
         });
 
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
 
         if (!res.ok || !data.ok) {
-          setBox(status, "err", `Create failed: ${data.error || "unknown error"}`);
+          setStatus("createStatus", "err", `Create failed: ${data.error || "unknown error"}`);
           return;
         }
 
-        const ownerId = data.ownerId || paidOwnerId;
-        const loginId = data.loginId;
+        // Save session + business name
+        localStorage.setItem("ownerId", String(ownerId));
+        localStorage.setItem("loginId", String(data.loginId || ""));
+        if (businessName) localStorage.setItem("businessName", businessName);
 
-        saveSession(ownerId, loginId);
-
-        setBox(status, "ok", `
-          ✅ Account created.<br><br>
-          ${biz ? `<b>Business:</b> ${biz}<br>` : ``}
-          <b>Owner ID:</b> ${ownerId}<br>
-          <b>Login ID:</b> ${loginId}<br>
-          <b>Password:</b> (the one you just set)<br><br>
-          <span style="opacity:.85;">Copy your Login ID. Then continue to dashboard.</span>
-        `);
+        // Show result (no auto-redirect)
+        setStatus(
+          "createStatus",
+          "ok",
+          `✅ Account created.<br><br>
+           Business: <b>${businessName ? businessName : "(not set)"}</b><br>
+           Owner ID: <b>${ownerId}</b><br>
+           Login ID: <b id="loginIdText">${data.loginId}</b><br>
+           Password: <span style="opacity:.8;">(the one you just set)</span><br><br>
+           Copy your Login ID, then continue to dashboard.`
+        );
 
         document.getElementById("copyBtn").style.display = "inline-flex";
-        document.getElementById("afterCreateRow").style.display = "flex";
-
-        document.getElementById("copyBtn").onclick = async () => {
-          const text =
-`MyLaundryReminder Login
-Business: ${biz || "(not set)"}
-Owner ID: ${ownerId}
-Login ID: ${loginId}
-Password: (the one you set)
-`;
-          try {
-            await navigator.clipboard.writeText(text);
-            setBox(status, "ok", status.innerHTML + `<br><br>📋 Copied to clipboard.`);
-          } catch (e) {
-            setBox(status, "err", "Clipboard copy failed (browser blocked). Copy the Login ID manually.");
-          }
-        };
-
-        document.getElementById("goDashBtn").onclick = () => {
-          goToDashboard(ownerId);
-        };
-
+        document.getElementById("goDashBtn").style.display = "inline-flex";
       } catch (e) {
-        setBox(status, "err", `Create failed: ${e.message}`);
+        setStatus("createStatus", "err", `Create failed: ${e.message}`);
       }
     }
 
+    function copyLoginId() {
+      const loginId = localStorage.getItem("loginId") || "";
+      if (!loginId) return;
+      navigator.clipboard.writeText(loginId).then(() => {
+        setStatus("createStatus", "ok", document.getElementById("createStatus").innerHTML + "<br><br>✅ Login ID copied.");
+      }).catch(() => {});
+    }
+
+    function goDashboard() {
+      window.location.href = "/dashboard.html?v=" + Date.now();
+    }
+
     async function login() {
-      const loginId = document.getElementById("loginIdInput").value.trim();
-      const password = document.getElementById("loginPasswordInput").value.trim();
-      const status = document.getElementById("loginStatus");
+      const loginId = document.getElementById("loginId").value.trim();
+      const password = document.getElementById("loginPass").value.trim();
 
       if (!loginId || !password) {
-        setBox(status, "err", "Enter Login ID and Password.");
+        setStatus("loginStatus", "err", "Login ID and password are required.");
         return;
       }
 
-      setBox(status, "", "Signing in…");
+      setStatus("loginStatus", "", "Signing in…");
 
       try {
         const res = await fetch("/api/login", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ loginId, password }),
+          body: JSON.stringify({ loginId, password })
         });
 
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
 
         if (!res.ok || !data.ok) {
-          setBox(status, "err", `Login failed: ${data.error || "unknown error"}`);
+          setStatus("loginStatus", "err", `Login failed: ${data.error || "unknown error"}`);
           return;
         }
 
         localStorage.setItem("ownerId", String(data.ownerId));
         localStorage.setItem("loginId", String(data.loginId));
-
-        const sub = String(data.subscription_status || "inactive");
-        if (sub !== "trialing" && sub !== "active") {
-          setBox(status, "err", `
-            ⚠️ Subscription is <b>${sub}</b>.<br><br>
-            Please subscribe on the marketing site, then come back here.<br><br>
-            <button class="btn primary" type="button" onclick="window.location.href='/choose-plan.html'">Choose a Plan</button>
-          `);
-          return;
-        }
-
-        setBox(status, "ok", "✅ Login success. Opening dashboard…");
-        goToDashboard(data.ownerId);
+        setStatus("loginStatus", "ok", "✅ Logged in. Opening dashboard…");
+        setTimeout(() => goDashboard(), 450);
       } catch (e) {
-        setBox(status, "err", `Login failed: ${e.message}`);
+        setStatus("loginStatus", "err", `Login failed: ${e.message}`);
       }
     }
 
-    function clearLocal() {
-      localStorage.removeItem("ownerId");
-      localStorage.removeItem("loginId");
-      localStorage.removeItem("businessName");
-      document.getElementById("loginIdInput").value = "";
-      document.getElementById("loginPasswordInput").value = "";
-      setBox(document.getElementById("loginStatus"), "", "Cleared.");
+    function clearForm() {
+      clearSession();
+      document.getElementById("loginId").value = "";
+      document.getElementById("loginPass").value = "";
+      setStatus("loginStatus", "", "Cleared.");
     }
 
     document.getElementById("createBtn").addEventListener("click", createAccount);
+    document.getElementById("copyBtn").addEventListener("click", copyLoginId);
+    document.getElementById("goDashBtn").addEventListener("click", goDashboard);
+
     document.getElementById("loginBtn").addEventListener("click", login);
-    document.getElementById("clearBtn").addEventListener("click", clearLocal);
+    document.getElementById("clearBtn").addEventListener("click", clearForm);
 
     document.addEventListener("DOMContentLoaded", () => {
-      showPaidUI();
+      showCreateIfPaid();
 
-      const savedBiz = localStorage.getItem("businessName");
-      if (savedBiz) document.getElementById("bizName").value = savedBiz;
+      // Pre-fill login if session exists
+      const existingLogin = localStorage.getItem("loginId");
+      if (existingLogin) document.getElementById("loginId").value = existingLogin;
 
-      const savedLoginId = localStorage.getItem("loginId");
-      if (savedLoginId) document.getElementById("loginIdInput").value = savedLoginId;
+      // If user landed here from logout, make it clean: login-only view
+      // (Create card stays hidden unless paid=1&owner_id=...)
     });
   </script>
 </body>
