@@ -16,7 +16,12 @@
           <p>Subscriber Dashboard</p>
         </div>
       </div>
-      <span class="badge">Portal</span>
+
+      <!-- ✅ Exit / Logout on dashboard -->
+      <div style="display:flex; gap:12px; align-items:center;">
+        <button class="btn" id="logoutBtn" type="button">Logout</button>
+        <span class="badge">Portal</span>
+      </div>
     </div>
 
     <div class="grid">
@@ -27,7 +32,6 @@
         <div class="row" style="margin-top:14px;">
           <button class="btn primary" type="button" onclick="goPickups()">Add Pickup</button>
           <button class="btn" type="button" onclick="refresh()">Refresh</button>
-          <button class="btn" type="button" onclick="logout()">Logout</button>
         </div>
 
         <div class="status" id="dashStatus" style="margin-top:14px;">Ready.</div>
@@ -42,6 +46,18 @@
   </div>
 
   <script>
+    function logout() {
+      localStorage.removeItem("ownerId");
+      localStorage.removeItem("loginId");
+      localStorage.removeItem("businessName");
+      window.location.href = "https://mylaundryreminder.com/?logged_out=1";
+    }
+
+    document.addEventListener("DOMContentLoaded", () => {
+      const btn = document.getElementById("logoutBtn");
+      if (btn) btn.addEventListener("click", logout);
+    });
+
     function session() {
       return {
         ownerId: localStorage.getItem("ownerId"),
@@ -51,12 +67,6 @@
     }
 
     function goPickups() { window.location.href = "/add-pickup.html?v=" + Date.now(); }
-
-    function logout() {
-      localStorage.removeItem("ownerId");
-      localStorage.removeItem("loginId");
-      window.location.href = "https://mylaundryreminder.com/?logged_out=1";
-    }
 
     function esc(s) {
       return String(s ?? "")
@@ -123,7 +133,7 @@
         const name = p.customer_name ?? p.name ?? "";
         const phone = p.customer_phone ?? p.phone ?? "";
 
-        // ✅ IMPORTANT: show raw YYYY-MM-DD string (DO NOT new Date())
+        // ✅ raw YYYY-MM-DD string (no Date conversion)
         const due = String(p.due_date ?? p.dueDate ?? "");
 
         const status = p.status ?? "pending";
@@ -211,5 +221,4 @@
     document.addEventListener("DOMContentLoaded", refresh);
   </script>
 </body>
-</html>
 </html>
