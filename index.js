@@ -706,6 +706,37 @@ app.get("/api/debug/user-status", requireAdmin, (req, res) => {
 });
 
 // Debug endpoint to see pickups schema
+// =====================================================
+// ✅ Debug (ADMIN ONLY)
+// =====================================================
+app.get("/api/debug/user-status", requireAdmin, (req, res) => {
+  try {
+    const ownerId = Number(req.query.ownerId);
+    if (!ownerId) return res.status(400).json({ ok: false, error: "ownerId required" });
+
+    const row = db
+      .prepare(
+        `
+      SELECT id, loginId, phone, subscription_status,
+             stripe_customer_id, stripe_subscription_id,
+             stripe_checkout_session_id, stripe_price_id, plan_name,
+             subscription_current_period_end,
+             activatedAt, updatedAt
+      FROM users
+      WHERE id=?
+    `
+      )
+      .get(ownerId);
+
+    if (!row) return res.json({ ok: true, exists: false, ownerId });
+
+    return res.json({ ok: true, exists: true, ...row });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// Debug endpoint to see pickups schema
 app.get("/api/debug/pickups-schema", requireAdmin, (req, res) => {
   try {
     if (!tableExists("pickups")) return res.json({ ok: true, exists: false });
@@ -1068,9 +1099,10 @@ app.get("/dashboard", (req, res) => res.redirect("/dashboard.html"));
 app.get("/login", (req, res) => res.redirect("/login.html"));
 app.get("/choose-plan", (req, res) => res.redirect("/choose-plan.html"));
 // ✅ Debug: confirm server is reading ADMIN_KEY (safe fingerprint)
-app.get("/api/debug/admin-key", (req, res) => {
+// ✅ Debug: confirm server is reading ADMIN_KEY (safe fingerprint) — ADMIN ONLY
+app.get("/api/debug/admin-key", requireAdmin, (req, res) => {
   try {
-    const v = String(process.env.ADMIN_KEY || "");
+    const v = String(ADMIN_KEY || "");
     const masked = v ? `${v.slice(0, 6)}...${v.slice(-4)} (len=${v.length})` : "(missing)";
     return res.json({ ok: true, admin_key: masked });
   } catch (e) {
