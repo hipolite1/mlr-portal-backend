@@ -15,15 +15,15 @@ const app = express();
 // ADMIN KEY (protect dangerous routes)
 // =========================
 const ADMIN_KEY = String(process.env.ADMIN_KEY || "").trim();
-console.log(`🔐 ADMIN_KEY loaded: ${ADMIN_KEY ? "set" : "missing"} (len=${ADMIN_KEY.length})`);
+console.log(
+  `🔐 ADMIN_KEY loaded: ${ADMIN_KEY ? "set" : "missing"} (len=${ADMIN_KEY.length})`
+);
 
 function requireAdmin(req, res, next) {
-  // Fail closed if missing (secure)
   if (!ADMIN_KEY) {
     return res.status(500).json({ ok: false, error: "ADMIN_KEY not set on server" });
   }
 
-  // Header preferred; query param allowed for quick tests
   const provided =
     String(req.get("x-admin-key") || "").trim() ||
     String(req.query.admin_key || "").trim();
@@ -40,13 +40,10 @@ function requireAdmin(req, res, next) {
 // ---------------------------
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 if (!STRIPE_SECRET_KEY) {
-  console.error(
-    "\n❌ STRIPE_SECRET_KEY missing in environment (.env locally / Render env vars)\n"
-  );
+  console.error("\n❌ STRIPE_SECRET_KEY missing in environment (.env locally / Render env vars)\n");
   process.exit(1);
 }
 const stripe = new Stripe(STRIPE_SECRET_KEY);
-
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || "";
 
 // ---------------------------
@@ -91,7 +88,6 @@ db.exec(`
   );
 `);
 
-// ✅ Stripe-related user columns safely (+ period_end)
 addColIfMissing("users", "stripe_customer_id TEXT");
 addColIfMissing("users", "stripe_subscription_id TEXT");
 addColIfMissing("users", "stripe_checkout_session_id TEXT");
@@ -149,32 +145,21 @@ function ensureCanonicalPickups() {
 
   const cols = tableCols("pickups");
 
+  // Legacy schema contains customer_id (NOT NULL) -> rebuild table
   if (cols.includes("customer_id")) {
     const legacyName = `pickups_legacy_${Date.now()}`;
     db.exec(`ALTER TABLE pickups RENAME TO ${legacyName};`);
     createCanonicalPickupsTable();
-    console.log(
-      `✅ Renamed legacy pickups -> ${legacyName} and created canonical pickups table.`
-    );
+    console.log(`✅ Renamed legacy pickups -> ${legacyName} and created canonical pickups table.`);
 
     try {
       const legacyCols = tableCols(legacyName);
 
       const ownerExpr = legacyCols.includes("owner_id") ? "owner_id" : "NULL";
-      const nameExpr = coalesceExpr(
-        legacyCols,
-        ["customer_name", "name", "customerName"],
-        "''"
-      );
-      const phoneExpr = coalesceExpr(
-        legacyCols,
-        ["customer_phone", "phone", "customerPhone"],
-        "''"
-      );
+      const nameExpr = coalesceExpr(legacyCols, ["customer_name", "name", "customerName"], "''");
+      const phoneExpr = coalesceExpr(legacyCols, ["customer_phone", "phone", "customerPhone"], "''");
       const dueExpr = coalesceExpr(legacyCols, ["due_date", "dueDate", "due"], "''");
-      const statusExpr = legacyCols.includes("status")
-        ? "COALESCE(status,'pending')"
-        : "'pending'";
+      const statusExpr = legacyCols.includes("status") ? "COALESCE(status,'pending')" : "'pending'";
       const createdExpr = legacyCols.includes("createdAt")
         ? "createdAt"
         : legacyCols.includes("created_at")
@@ -293,7 +278,6 @@ function updateUserStripeCheckoutSuccess({
   }
 }
 
-// ✅ FIXED: always update by subscriptionId OR customerId OR ownerId (so period_end gets saved)
 function updateUserStripeSubscriptionStatus({
   ownerId = null,
   subscriptionId = null,
@@ -334,9 +318,9 @@ function updateUserStripeSubscriptionStatus({
     );
 
   console.log(
-    `✅ Subscription sync -> ${appStatus} (sub=${subscriptionId || "n/a"} cust=${
-      customerId || "n/a"
-    } owner=${ownerId || "n/a"} period_end=${currentPeriodEnd ?? "null"} changes=${info.changes})`
+    `✅ Subscription sync -> ${appStatus} (sub=${subscriptionId || "n/a"} cust=${customerId || "n/a"} owner=${
+      ownerId || "n/a"
+    } period_end=${currentPeriodEnd ?? "null"} changes=${info.changes})`
   );
 }
 
@@ -386,11 +370,8 @@ app.post(
             try {
               const subscription = await stripe.subscriptions.retrieve(subscriptionId);
               appStatus = mapStripeSubscriptionStatus(subscription.status);
-
               periodEnd =
-                subscription.current_period_end != null
-                  ? Number(subscription.current_period_end)
-                  : null;
+                subscription.current_period_end != null ? Number(subscription.current_period_end) : null;
 
               const subPriceId = subscription?.items?.data?.[0]?.price?.id || null;
 
@@ -444,9 +425,7 @@ app.post(
           const stripeStatus = String(sub.status || "");
           const priceId = sub?.items?.data?.[0]?.price?.id || null;
           const planName = sub?.metadata?.plan || null;
-
-          const periodEnd =
-            sub.current_period_end != null ? Number(sub.current_period_end) : null;
+          const periodEnd = sub.current_period_end != null ? Number(sub.current_period_end) : null;
 
           updateUserStripeSubscriptionStatus({
             ownerId,
@@ -482,9 +461,7 @@ app.post(
             `
             ).run(customerId, subscriptionId);
 
-            console.log(
-              `🟡 Invoice payment failed -> marked past_due for subscription ${subscriptionId}`
-            );
+            console.log(`🟡 Invoice payment failed -> marked past_due for subscription ${subscriptionId}`);
           }
           break;
         }
@@ -542,11 +519,9 @@ function getSubStatus(ownerId) {
   const row = db.prepare(`SELECT subscription_status FROM users WHERE id=?`).get(Number(ownerId));
   return row?.subscription_status || "inactive";
 }
-
 function isAllowedStatus(status) {
   return status === "trialing" || status === "active";
 }
-
 function requireActiveFromOwnerId(ownerId, res) {
   if (!ownerId) {
     res.status(400).json({ ok: false, error: "ownerId required" });
@@ -559,7 +534,6 @@ function requireActiveFromOwnerId(ownerId, res) {
   }
   return true;
 }
-
 function requireActive(req, res, next) {
   try {
     const ownerId = Number(req.query?.ownerId ?? req.body?.ownerId);
@@ -583,12 +557,10 @@ app.use((req, res, next) => {
 
       if (paid === "1" && ownerId) {
         const row = db.prepare(`SELECT subscription_status FROM users WHERE id=?`).get(ownerId);
-
         if (row && row.subscription_status === "inactive") {
           db.prepare(
             `UPDATE users SET subscription_status='trialing', updatedAt=CURRENT_TIMESTAMP WHERE id=?`
           ).run(ownerId);
-
           console.log(`✅ Paid redirect unlock: owner ${ownerId} -> trialing`);
         }
       }
@@ -596,7 +568,6 @@ app.use((req, res, next) => {
   } catch (e) {
     console.log("🟡 Paid redirect unlock skipped:", e.message);
   }
-
   next();
 });
 
@@ -609,17 +580,11 @@ app.get("/ping", (req, res) => res.status(200).send("ok"));
 
 // Pages
 app.get("/", (req, res) => res.sendFile(path.join(__dirname, "frontend", "login.html")));
-app.get("/welcome.html", (req, res) =>
-  res.sendFile(path.join(__dirname, "frontend", "welcome.html"))
-);
+app.get("/welcome.html", (req, res) => res.sendFile(path.join(__dirname, "frontend", "welcome.html")));
 app.get("/choose-plan.html", (req, res) =>
   res.sendFile(path.join(__dirname, "frontend", "choose-plan.html"))
 );
-
-app.get("/login.html", (req, res) => {
-  return res.sendFile(path.join(__dirname, "frontend", "login.html"));
-});
-
+app.get("/login.html", (req, res) => res.sendFile(path.join(__dirname, "frontend", "login.html")));
 app.get("/dashboard.html", (req, res) =>
   res.sendFile(path.join(__dirname, "frontend", "dashboard.html"))
 );
@@ -628,7 +593,7 @@ app.get("/add-pickup.html", (req, res) =>
 );
 
 // =====================================================
-// ✅ Manual unlock for testing (keep for now; remove before launch)
+// ✅ Manual unlock for testing (ADMIN ONLY; remove before launch)
 // =====================================================
 app.get("/api/mark-trial", requireAdmin, (req, res) => {
   try {
@@ -636,15 +601,11 @@ app.get("/api/mark-trial", requireAdmin, (req, res) => {
     if (!ownerId) return res.status(400).json({ ok: false, error: "ownerId required" });
 
     const info = db
-      .prepare(
-        `UPDATE users SET subscription_status='trialing', updatedAt=CURRENT_TIMESTAMP WHERE id=?`
-      )
+      .prepare(`UPDATE users SET subscription_status='trialing', updatedAt=CURRENT_TIMESTAMP WHERE id=?`)
       .run(ownerId);
 
     if (info.changes === 0) {
-      return res
-        .status(404)
-        .json({ ok: false, error: `Owner ${ownerId} not found (no rows updated)` });
+      return res.status(404).json({ ok: false, error: `Owner ${ownerId} not found (no rows updated)` });
     }
 
     const row = db
@@ -677,37 +638,6 @@ app.get("/api/mark-trial", requireAdmin, (req, res) => {
 });
 
 // =====================================================
-// ✅ Debug: check user status quickly
-// =====================================================
-app.get("/api/debug/user-status", requireAdmin, (req, res) => {
-  try {
-    const ownerId = Number(req.query.ownerId);
-    if (!ownerId) return res.status(400).json({ ok: false, error: "ownerId required" });
-
-    const row = db
-      .prepare(
-        `
-      SELECT id, loginId, phone, subscription_status,
-             stripe_customer_id, stripe_subscription_id,
-             stripe_checkout_session_id, stripe_price_id, plan_name,
-             subscription_current_period_end,
-             activatedAt, updatedAt
-      FROM users
-      WHERE id=?
-    `
-      )
-      .get(ownerId);
-
-    if (!row) return res.json({ ok: true, exists: false, ownerId });
-
-    return res.json({ ok: true, exists: true, ...row });
-  } catch (e) {
-    return res.status(500).json({ ok: false, error: e.message });
-  }
-});
-
-// Debug endpoint to see pickups schema
-// =====================================================
 // ✅ Debug (ADMIN ONLY)
 // =====================================================
 app.get("/api/debug/user-status", requireAdmin, (req, res) => {
@@ -730,14 +660,12 @@ app.get("/api/debug/user-status", requireAdmin, (req, res) => {
       .get(ownerId);
 
     if (!row) return res.json({ ok: true, exists: false, ownerId });
-
     return res.json({ ok: true, exists: true, ...row });
   } catch (e) {
     return res.status(500).json({ ok: false, error: e.message });
   }
 });
 
-// Debug endpoint to see pickups schema
 app.get("/api/debug/pickups-schema", requireAdmin, (req, res) => {
   try {
     if (!tableExists("pickups")) return res.json({ ok: true, exists: false });
@@ -746,14 +674,13 @@ app.get("/api/debug/pickups-schema", requireAdmin, (req, res) => {
     return res.status(500).json({ ok: false, error: e.message });
   }
 });
-/api/debug/db-info
+
 // ✅ Debug: show which SQLite file is actually in use (ADMIN ONLY)
 app.get("/api/debug/db-info", requireAdmin, (req, res) => {
   try {
     const envDbPath = String(process.env.DB_PATH || "./users.db");
     const fileExists = fs.existsSync(envDbPath);
 
-    // Shows the real DB file path SQLite has opened
     const dbList = db.prepare("PRAGMA database_list").all();
 
     return res.json({
@@ -766,6 +693,18 @@ app.get("/api/debug/db-info", requireAdmin, (req, res) => {
     return res.status(500).json({ ok: false, error: e.message });
   }
 });
+
+// ✅ Debug: confirm server is reading ADMIN_KEY (safe fingerprint) — ADMIN ONLY
+app.get("/api/debug/admin-key", requireAdmin, (req, res) => {
+  try {
+    const v = String(ADMIN_KEY || "");
+    const masked = v ? `${v.slice(0, 6)}...${v.slice(-4)} (len=${v.length})` : "(missing)";
+    return res.json({ ok: true, admin_key: masked });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 // =====================================================
 // ✅ CREATE ACCOUNT
 // =====================================================
@@ -797,7 +736,8 @@ app.post("/api/create-account", async (req, res) => {
 
     const info = db
       .prepare(
-        `INSERT INTO users (loginId, password, phone, subscription_status, updatedAt) VALUES (?, ?, ?, 'inactive', CURRENT_TIMESTAMP)`
+        `INSERT INTO users (loginId, password, phone, subscription_status, updatedAt)
+         VALUES (?, ?, ?, 'inactive', CURRENT_TIMESTAMP)`
       )
       .run(loginId, hashed, phone);
 
@@ -860,9 +800,7 @@ app.post("/api/pickups", requireActive, (req, res) => {
     const dueDate = String(req.body.dueDate || "").trim();
 
     if (!ownerId || !name || !phone || !dueDate) {
-      return res
-        .status(400)
-        .json({ ok: false, error: "ownerId, name, phone, dueDate are required" });
+      return res.status(400).json({ ok: false, error: "ownerId, name, phone, dueDate are required" });
     }
 
     const info = db
@@ -884,6 +822,7 @@ app.post("/api/pickups", requireActive, (req, res) => {
 app.get("/api/pickups", requireActive, (req, res) => {
   try {
     const ownerId = Number(req.query.ownerId);
+
     const rows = db
       .prepare(
         `
@@ -959,7 +898,7 @@ async function sendReminderSms(to, body) {
     console.log("🟡 SEND_SMS=false — would send to:", to, "msg:", body);
     return { skipped: true };
   }
-  if (!to || !String(to).trim()) throw new Error("Missing customer phone (customer_phone)");
+  if (!to || !String(to).trim()) throw new Error('Required parameter "to" missing (customer_phone).');
   if (!twilioClient || !TWILIO_NUMBER) {
     throw new Error("Twilio not configured (TWILIO_ACCOUNT_SID/TWILIO_AUTH_TOKEN/TWILIO_NUMBER)");
   }
@@ -1077,7 +1016,8 @@ app.get("/stripe/checkout", (req, res) => {
     try {
       const info = db
         .prepare(
-          `INSERT INTO users (loginId, password, phone, subscription_status, updatedAt) VALUES (?, ?, ?, 'inactive', CURRENT_TIMESTAMP)`
+          `INSERT INTO users (loginId, password, phone, subscription_status, updatedAt)
+           VALUES (?, ?, ?, 'inactive', CURRENT_TIMESTAMP)`
         )
         .run(autoLoginId, autoPass, autoPhone);
       ownerId = Number(info.lastInsertRowid);
@@ -1118,15 +1058,5 @@ app.get("/add-pickup", (req, res) => res.redirect("/add-pickup.html"));
 app.get("/dashboard", (req, res) => res.redirect("/dashboard.html"));
 app.get("/login", (req, res) => res.redirect("/login.html"));
 app.get("/choose-plan", (req, res) => res.redirect("/choose-plan.html"));
-// ✅ Debug: confirm server is reading ADMIN_KEY (safe fingerprint)
-// ✅ Debug: confirm server is reading ADMIN_KEY (safe fingerprint) — ADMIN ONLY
-app.get("/api/debug/admin-key", requireAdmin, (req, res) => {
-  try {
-    const v = String(ADMIN_KEY || "");
-    const masked = v ? `${v.slice(0, 6)}...${v.slice(-4)} (len=${v.length})` : "(missing)";
-    return res.json({ ok: true, admin_key: masked });
-  } catch (e) {
-    return res.status(500).json({ ok: false, error: e.message });
-  }
-});
+
 app.listen(PORT, () => console.log(`MLR server running on port ${PORT}`));
