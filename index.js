@@ -4,6 +4,7 @@ const express = require("express");
 const path = require("path");
 const Stripe = require("stripe");
 const crypto = require("crypto");
+const fs = require("fs");
 const Database = require("better-sqlite3");
 const cron = require("node-cron");
 const twilio = require("twilio");
@@ -745,7 +746,26 @@ app.get("/api/debug/pickups-schema", requireAdmin, (req, res) => {
     return res.status(500).json({ ok: false, error: e.message });
   }
 });
+/api/debug/db-info
+// ✅ Debug: show which SQLite file is actually in use (ADMIN ONLY)
+app.get("/api/debug/db-info", requireAdmin, (req, res) => {
+  try {
+    const envDbPath = String(process.env.DB_PATH || "./users.db");
+    const fileExists = fs.existsSync(envDbPath);
 
+    // Shows the real DB file path SQLite has opened
+    const dbList = db.prepare("PRAGMA database_list").all();
+
+    return res.json({
+      ok: true,
+      env_DB_PATH: envDbPath,
+      file_exists: fileExists,
+      database_list: dbList,
+    });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: e.message });
+  }
+});
 // =====================================================
 // ✅ CREATE ACCOUNT
 // =====================================================
