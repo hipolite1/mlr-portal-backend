@@ -629,7 +629,7 @@ app.get("/add-pickup.html", (req, res) =>
 // =====================================================
 // ✅ Manual unlock for testing (keep for now; remove before launch)
 // =====================================================
-app.get("/api/mark-trial", (req, res) => {
+app.get("/api/mark-trial", requireAdmin, (req, res) => {
   try {
     const ownerId = Number(req.query.ownerId);
     if (!ownerId) return res.status(400).json({ ok: false, error: "ownerId required" });
@@ -678,7 +678,7 @@ app.get("/api/mark-trial", (req, res) => {
 // =====================================================
 // ✅ Debug: check user status quickly
 // =====================================================
-app.get("/api/debug/user-status", (req, res) => {
+app.get("/api/debug/user-status", requireAdmin, (req, res) => {
   try {
     const ownerId = Number(req.query.ownerId);
     if (!ownerId) return res.status(400).json({ ok: false, error: "ownerId required" });
@@ -706,7 +706,7 @@ app.get("/api/debug/user-status", (req, res) => {
 });
 
 // Debug endpoint to see pickups schema
-app.get("/api/debug/pickups-schema", (req, res) => {
+app.get("/api/debug/pickups-schema", requireAdmin, (req, res) => {
   try {
     if (!tableExists("pickups")) return res.json({ ok: true, exists: false });
     return res.json({ ok: true, exists: true, cols: tableCols("pickups") });
