@@ -1066,5 +1066,14 @@ app.get("/add-pickup", (req, res) => res.redirect("/add-pickup.html"));
 app.get("/dashboard", (req, res) => res.redirect("/dashboard.html"));
 app.get("/login", (req, res) => res.redirect("/login.html"));
 app.get("/choose-plan", (req, res) => res.redirect("/choose-plan.html"));
-
+// ✅ Debug: confirm server is reading ADMIN_KEY (safe fingerprint)
+app.get("/api/debug/admin-key", (req, res) => {
+  try {
+    const v = String(process.env.ADMIN_KEY || "");
+    const masked = v ? `${v.slice(0, 6)}...${v.slice(-4)} (len=${v.length})` : "(missing)";
+    return res.json({ ok: true, admin_key: masked });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: e.message });
+  }
+});
 app.listen(PORT, () => console.log(`MLR server running on port ${PORT}`));
