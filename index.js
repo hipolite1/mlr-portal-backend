@@ -13,7 +13,8 @@ const app = express();
 // =========================
 // ADMIN KEY (protect dangerous routes)
 // =========================
-const ADMIN_KEY = process.env.ADMIN_KEY || "";
+const ADMIN_KEY = String(process.env.ADMIN_KEY || "").trim();
+console.log(`🔐 ADMIN_KEY loaded: ${ADMIN_KEY ? "set" : "missing"} (len=${ADMIN_KEY.length})`);
 
 function requireAdmin(req, res, next) {
   // Fail closed if missing (secure)
