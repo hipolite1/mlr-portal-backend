@@ -988,7 +988,12 @@ app.post("/stripe/create-checkout-session", async (req, res) => {
       cancel_url: `${process.env.APP_BASE_URL}/choose-plan.html?canceled=1`,
       client_reference_id: String(ownerId),
       metadata: { owner_id: String(ownerId), plan: String(plan), price_id: String(priceId) },
-      subscription_data: { metadata: { owner_id: String(ownerId), plan: String(plan) } },
+
+      // ✅ 3C: 30-day free trial
+      subscription_data: {
+        trial_period_days: 30,
+        metadata: { owner_id: String(ownerId), plan: String(plan) },
+      },
     });
 
     res.json({ url: session.url });
@@ -1034,7 +1039,12 @@ app.get("/stripe/checkout", (req, res) => {
         cancel_url: `${baseUrl}/choose-plan.html?canceled=1`,
         client_reference_id: String(ownerId),
         metadata: { owner_id: String(ownerId), plan: planKey, price_id: String(priceId) },
-        subscription_data: { metadata: { owner_id: String(ownerId), plan: planKey } },
+
+        // ✅ 2C: 30-day free trial
+        subscription_data: {
+          trial_period_days: 30,
+          metadata: { owner_id: String(ownerId), plan: planKey },
+        },
       })
       .then((session) => res.redirect(session.url))
       .catch((e) => {
