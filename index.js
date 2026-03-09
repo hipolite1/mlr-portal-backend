@@ -612,6 +612,24 @@ app.get("/api/mark-trial", requireAdmin, (req, res) => {
       plan_name: row.plan_name,
       subscription_current_period_end: row.subscription_current_period_end,
     });
+    // ✅ ADMIN: cleanup users incorrectly marked trialing without Stripe IDs
+app.post("/api/admin/cleanup-trialing-no-stripe", requireAdmin, (req, res) => {
+  try {
+    const info = db.prepare(`
+      UPDATE users
+      SET subscription_status = 'inactive',
+          updatedAt = CURRENT_TIMESTAMP
+      WHERE subscription_status = 'trialing'
+        AND (stripe_subscription_id IS NULL OR stripe_subscription_id = '')
+        AND (stripe_checkout_session_id IS NULL OR stripe_checkout_session_id = '')
+        AND (stripe_customer_id IS NULL OR stripe_customer_id = '')
+    `).run();
+
+    return res.json({ ok: true, cleaned: info.changes });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: e.message });
+  }
+});
   } catch (e) {
     console.error("GET /api/mark-trial error:", e.message);
     return res.status(500).json({ ok: false, error: e.message });
