@@ -582,11 +582,15 @@ app.get("/api/mark-trial", requireAdmin, (req, res) => {
     if (!ownerId) return res.status(400).json({ ok: false, error: "ownerId required" });
 
     const info = db
-      .prepare(`UPDATE users SET subscription_status='trialing', updatedAt=CURRENT_TIMESTAMP WHERE id=?`)
+      .prepare(
+        `UPDATE users SET subscription_status='trialing', updatedAt=CURRENT_TIMESTAMP WHERE id=?`
+      )
       .run(ownerId);
 
     if (info.changes === 0) {
-      return res.status(404).json({ ok: false, error: `Owner ${ownerId} not found (no rows updated)` });
+      return res
+        .status(404)
+        .json({ ok: false, error: `Owner ${ownerId} not found (no rows updated)` });
     }
 
     const row = db
@@ -612,10 +616,21 @@ app.get("/api/mark-trial", requireAdmin, (req, res) => {
       plan_name: row.plan_name,
       subscription_current_period_end: row.subscription_current_period_end,
     });
-    // ✅ ADMIN: cleanup users incorrectly marked trialing without Stripe IDs
+  } catch (e) {
+    console.error("GET /api/mark-trial error:", e.message);
+    return res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// =====================================================
+// ✅ ADMIN: cleanup users incorrectly marked trialing without Stripe IDs
+// (Fixes cases like owner 8: trialing but all stripe_* fields null)
+// =====================================================
 app.post("/api/admin/cleanup-trialing-no-stripe", requireAdmin, (req, res) => {
   try {
-    const info = db.prepare(`
+    const info = db
+      .prepare(
+        `
       UPDATE users
       SET subscription_status = 'inactive',
           updatedAt = CURRENT_TIMESTAMP
@@ -623,19 +638,15 @@ app.post("/api/admin/cleanup-trialing-no-stripe", requireAdmin, (req, res) => {
         AND (stripe_subscription_id IS NULL OR stripe_subscription_id = '')
         AND (stripe_checkout_session_id IS NULL OR stripe_checkout_session_id = '')
         AND (stripe_customer_id IS NULL OR stripe_customer_id = '')
-    `).run();
+    `
+      )
+      .run();
 
     return res.json({ ok: true, cleaned: info.changes });
   } catch (e) {
     return res.status(500).json({ ok: false, error: e.message });
   }
 });
-  } catch (e) {
-    console.error("GET /api/mark-trial error:", e.message);
-    return res.status(500).json({ ok: false, error: e.message });
-  }
-});
-
 // =====================================================
 // ✅ Debug (ADMIN ONLY)
 // =====================================================
