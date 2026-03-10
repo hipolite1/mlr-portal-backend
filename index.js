@@ -38,7 +38,12 @@ function requireAdmin(req, res, next) {
 // ---------------------------
 // Stripe (fail-fast)
 // ---------------------------
-const STRIPE_WEBHOOK_SECRET = String(process.env.STRIPE_WEBHOOK_SECRET || "").trim();
+// Webhook secret: remove ANY whitespace (Render paste can include newline)
+const STRIPE_WEBHOOK_SECRET_RAW = String(process.env.STRIPE_WEBHOOK_SECRET || "");
+const STRIPE_WEBHOOK_SECRET = STRIPE_WEBHOOK_SECRET_RAW.replace(/\s+/g, "");
+console.log(
+  `🔔 Webhook secret loaded: ${STRIPE_WEBHOOK_SECRET ? "set" : "missing"} (len=${STRIPE_WEBHOOK_SECRET.length}, hadWhitespace=${/\s/.test(STRIPE_WEBHOOK_SECRET_RAW)})`
+);
 if (!STRIPE_SECRET_KEY) {
   console.error("\n❌ STRIPE_SECRET_KEY missing in environment (.env locally / Render env vars)\n");
   process.exit(1);
