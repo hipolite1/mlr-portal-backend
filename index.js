@@ -44,7 +44,6 @@ if (!STRIPE_SECRET_KEY) {
   process.exit(1);
 }
 const stripe = new Stripe(STRIPE_SECRET_KEY);
-const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || "";
 
 // ---------------------------
 // Database (Render Disk ready)
