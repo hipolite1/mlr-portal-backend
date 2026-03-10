@@ -38,7 +38,7 @@ function requireAdmin(req, res, next) {
 // ---------------------------
 // Stripe (fail-fast)
 // ---------------------------
-const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
+const STRIPE_WEBHOOK_SECRET = String(process.env.STRIPE_WEBHOOK_SECRET || "").trim();
 if (!STRIPE_SECRET_KEY) {
   console.error("\n❌ STRIPE_SECRET_KEY missing in environment (.env locally / Render env vars)\n");
   process.exit(1);
