@@ -40,16 +40,37 @@ function requireAdmin(req, res, next) {
 // ---------------------------
 const STRIPE_SECRET_KEY = String(process.env.STRIPE_SECRET_KEY || "").trim();
 if (!STRIPE_SECRET_KEY) {
-  console.error("\n❌ STRIPE_SECRET_KEY missing in environment (.env locally / Render env vars)\n");
+  console.error(
+    "\n❌ STRIPE_SECRET_KEY missing in environment (.env locally / Render env vars)\n"
+  );
   process.exit(1);
 }
 const stripe = new Stripe(STRIPE_SECRET_KEY);
 
-// Webhook secret: remove ANY whitespace (Render paste can include newline)
+// ---------------------------
+// Stripe webhook secret (sanitize + log)
+// ---------------------------
+function sanitizeWebhookSecret(raw) {
+  let s = String(raw || "");
+  s = s.trim();
+
+  // Strip accidental wrapping quotes from env var value
+  if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
+    s = s.slice(1, -1);
+  }
+
+  // Remove ANY whitespace (newlines/spaces copied into Render env var)
+  s = s.replace(/\s+/g, "");
+  return s;
+}
+
 const STRIPE_WEBHOOK_SECRET_RAW = String(process.env.STRIPE_WEBHOOK_SECRET || "");
-const STRIPE_WEBHOOK_SECRET = STRIPE_WEBHOOK_SECRET_RAW.replace(/\s+/g, "");
+const STRIPE_WEBHOOK_SECRET = sanitizeWebhookSecret(STRIPE_WEBHOOK_SECRET_RAW);
+
 console.log(
-  `🔔 Webhook secret loaded: ${STRIPE_WEBHOOK_SECRET ? "set" : "missing"} (len=${STRIPE_WEBHOOK_SECRET.length}, hadWhitespace=${/\s/.test(STRIPE_WEBHOOK_SECRET_RAW)})`
+  `🔔 Webhook secret loaded: ${STRIPE_WEBHOOK_SECRET ? "set" : "missing"} (len=${STRIPE_WEBHOOK_SECRET.length}, rawHadWhitespace=${/\s/.test(
+    STRIPE_WEBHOOK_SECRET_RAW
+  )}, sanitizedHadWhitespace=${/\s/.test(STRIPE_WEBHOOK_SECRET)})`
 );
 
 // ---------------------------
@@ -156,7 +177,9 @@ function ensureCanonicalPickups() {
     const legacyName = `pickups_legacy_${Date.now()}`;
     db.exec(`ALTER TABLE pickups RENAME TO ${legacyName};`);
     createCanonicalPickupsTable();
-    console.log(`✅ Renamed legacy pickups -> ${legacyName} and created canonical pickups table.`);
+    console.log(
+      `✅ Renamed legacy pickups -> ${legacyName} and created canonical pickups table.`
+    );
 
     try {
       const legacyCols = tableCols(legacyName);
@@ -165,7 +188,9 @@ function ensureCanonicalPickups() {
       const nameExpr = coalesceExpr(legacyCols, ["customer_name", "name", "customerName"], "''");
       const phoneExpr = coalesceExpr(legacyCols, ["customer_phone", "phone", "customerPhone"], "''");
       const dueExpr = coalesceExpr(legacyCols, ["due_date", "dueDate", "due"], "''");
-      const statusExpr = legacyCols.includes("status") ? "COALESCE(status,'pending')" : "'pending'";
+      const statusExpr = legacyCols.includes("status")
+        ? "COALESCE(status,'pending')"
+        : "'pending'";
       const createdExpr = legacyCols.includes("createdAt")
         ? "createdAt"
         : legacyCols.includes("created_at")
@@ -324,9 +349,11 @@ function updateUserStripeSubscriptionStatus({
     );
 
   console.log(
-    `✅ Subscription sync -> ${appStatus} (sub=${subscriptionId || "n/a"} cust=${customerId || "n/a"} owner=${
-      ownerId || "n/a"
-    } period_end=${currentPeriodEnd ?? "null"} changes=${info.changes})`
+    `✅ Subscription sync -> ${appStatus} (sub=${subscriptionId || "n/a"} cust=${
+      customerId || "n/a"
+    } owner=${ownerId || "n/a"} period_end=${currentPeriodEnd ?? "null"} changes=${
+      info.changes
+    })`
   );
 }
 
@@ -337,17 +364,19 @@ app.post(
   "/stripe/webhook",
   express.raw({ type: "application/json" }),
   async (req, res) => {
-    if (!STRIPE_WEBHOOK_SECRET) {
+    const signature = req.headers["stripe-signature"];
+    if (!signature) return res.status(400).send("Missing Stripe-Signature header");
+
+    // ✅ Always sanitize secret right here (removes spaces/newlines/quotes)
+    const webhookSecret = sanitizeWebhookSecret(process.env.STRIPE_WEBHOOK_SECRET);
+    if (!webhookSecret) {
       console.error("❌ STRIPE_WEBHOOK_SECRET missing");
       return res.status(500).send("Webhook secret not configured");
     }
 
-    const signature = req.headers["stripe-signature"];
-    if (!signature) return res.status(400).send("Missing Stripe-Signature header");
-
     let event;
     try {
-      event = stripe.webhooks.constructEvent(req.body, signature, STRIPE_WEBHOOK_SECRET);
+      event = stripe.webhooks.constructEvent(req.body, signature, webhookSecret);
     } catch (err) {
       console.error("❌ Webhook signature verification failed:", err.message);
       return res.status(400).send(`Webhook Error: ${err.message}`);
@@ -377,7 +406,9 @@ app.post(
               const subscription = await stripe.subscriptions.retrieve(subscriptionId);
               appStatus = mapStripeSubscriptionStatus(subscription.status);
               periodEnd =
-                subscription.current_period_end != null ? Number(subscription.current_period_end) : null;
+                subscription.current_period_end != null
+                  ? Number(subscription.current_period_end)
+                  : null;
 
               const subPriceId = subscription?.items?.data?.[0]?.price?.id || null;
 
@@ -467,7 +498,9 @@ app.post(
             `
             ).run(customerId, subscriptionId);
 
-            console.log(`🟡 Invoice payment failed -> marked past_due for subscription ${subscriptionId}`);
+            console.log(
+              `🟡 Invoice payment failed -> marked past_due for subscription ${subscriptionId}`
+            );
           }
           break;
         }
@@ -486,7 +519,7 @@ app.post(
 
 // ✅ JSON for everything EXCEPT Stripe webhook (webhook needs raw body)
 app.use((req, res, next) => {
-  if (req.originalUrl === "/stripe/webhook") return next();
+  if (req.path === "/stripe/webhook") return next();
   return express.json()(req, res, next);
 });
 
@@ -554,10 +587,7 @@ function requireActive(req, res, next) {
 // ---------------------------
 // Static frontend
 // ---------------------------
-// ✅ IMPORTANT: URL params must NOT unlock access.
-// ✅ Unlock happens only after Stripe confirms (webhook updates subscription_status).
 app.use((req, res, next) => next());
-
 app.use(express.static(path.join(__dirname, "frontend")));
 
 // =========================
@@ -567,7 +597,9 @@ app.get("/ping", (req, res) => res.status(200).send("ok"));
 
 // Pages
 app.get("/", (req, res) => res.sendFile(path.join(__dirname, "frontend", "login.html")));
-app.get("/welcome.html", (req, res) => res.sendFile(path.join(__dirname, "frontend", "welcome.html")));
+app.get("/welcome.html", (req, res) =>
+  res.sendFile(path.join(__dirname, "frontend", "welcome.html"))
+);
 app.get("/choose-plan.html", (req, res) =>
   res.sendFile(path.join(__dirname, "frontend", "choose-plan.html"))
 );
@@ -630,7 +662,6 @@ app.get("/api/mark-trial", requireAdmin, (req, res) => {
 
 // =====================================================
 // ✅ ADMIN: cleanup users incorrectly marked trialing without Stripe IDs
-// (Fixes cases like owner 8: trialing but all stripe_* fields null)
 // =====================================================
 app.post("/api/admin/cleanup-trialing-no-stripe", requireAdmin, (req, res) => {
   try {
@@ -653,6 +684,7 @@ app.post("/api/admin/cleanup-trialing-no-stripe", requireAdmin, (req, res) => {
     return res.status(500).json({ ok: false, error: e.message });
   }
 });
+
 // =====================================================
 // ✅ Debug (ADMIN ONLY)
 // =====================================================
@@ -691,7 +723,6 @@ app.get("/api/debug/pickups-schema", requireAdmin, (req, res) => {
   }
 });
 
-// ✅ Debug: show which SQLite file is actually in use (ADMIN ONLY)
 app.get("/api/debug/db-info", requireAdmin, (req, res) => {
   try {
     const envDbPath = String(process.env.DB_PATH || "./users.db");
@@ -710,7 +741,6 @@ app.get("/api/debug/db-info", requireAdmin, (req, res) => {
   }
 });
 
-// ✅ Debug: confirm server is reading ADMIN_KEY (safe fingerprint) — ADMIN ONLY
 app.get("/api/debug/admin-key", requireAdmin, (req, res) => {
   try {
     const v = String(ADMIN_KEY || "");
@@ -975,7 +1005,6 @@ if (RUN_REMINDERS) {
   console.log("🟡 Reminder cron disabled (RUN_REMINDERS=false)");
 }
 
-// ✅ LOCKED: require ADMIN_KEY now
 app.post("/api/reminders/run-now", requireAdmin, async (req, res) => {
   try {
     await runRemindersOnce();
@@ -1004,8 +1033,6 @@ app.post("/stripe/create-checkout-session", async (req, res) => {
       cancel_url: `${process.env.APP_BASE_URL}/choose-plan.html?canceled=1`,
       client_reference_id: String(ownerId),
       metadata: { owner_id: String(ownerId), plan: String(plan), price_id: String(priceId) },
-
-      // ✅ 30-day free trial
       subscription_data: {
         trial_period_days: 30,
         metadata: { owner_id: String(ownerId), plan: String(plan) },
@@ -1051,13 +1078,10 @@ app.get("/stripe/checkout", (req, res) => {
       .create({
         mode: "subscription",
         line_items: [{ price: priceId, quantity: 1 }],
-        // ✅ include session_id so we can verify later if needed
         success_url: `${baseUrl}/login.html?paid=1&owner_id=${ownerId}&session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${baseUrl}/choose-plan.html?canceled=1`,
         client_reference_id: String(ownerId),
         metadata: { owner_id: String(ownerId), plan: planKey, price_id: String(priceId) },
-
-        // ✅ 30-day free trial
         subscription_data: {
           trial_period_days: 30,
           metadata: { owner_id: String(ownerId), plan: planKey },
@@ -1079,7 +1103,6 @@ app.get("/stripe/checkout", (req, res) => {
 // ---------------------------
 const PORT = process.env.PORT || 3000;
 
-// Pretty URL redirects
 app.get("/welcome", (req, res) => res.redirect("/welcome.html"));
 app.get("/add-pickup", (req, res) => res.redirect("/add-pickup.html"));
 app.get("/dashboard", (req, res) => res.redirect("/dashboard.html"));
