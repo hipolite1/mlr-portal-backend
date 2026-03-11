@@ -991,12 +991,11 @@ async function sendReminderSms(to, body) {
   return { sid: msg.sid };
 }
 
-async function runRemindersOnce() {
-  if (!RUN_REMINDERS) {
+async function runRemindersOnce(force = false) {
+  if (!RUN_REMINDERS && !force) {
     console.log("🟡 RUN_REMINDERS=false — reminder job not running.");
     return;
   }
-
   const today = todayUTC();
 
   const rows = db
@@ -1035,25 +1034,28 @@ async function runRemindersOnce() {
     }
   }
 }
+// =====================================================
+// ✅ REMINDER SCHEDULER + ADMIN RUN-NOW
+// =====================================================
 
 if (RUN_REMINDERS) {
   const CRON_EXPR = process.env.REMINDER_CRON || "*/10 * * * *";
-  cron.schedule(CRON_EXPR, () => runRemindersOnce());
+  cron.schedule(CRON_EXPR, () => runRemindersOnce(false));
   console.log(`⏱️ Reminder cron enabled: "${CRON_EXPR}" (RUN_REMINDERS=true)`);
 } else {
   console.log("🟡 Reminder cron disabled (RUN_REMINDERS=false)");
 }
 
+// ✅ Admin run-now should work even when RUN_REMINDERS=false
 app.post("/api/reminders/run-now", requireAdmin, async (req, res) => {
   try {
-    await runRemindersOnce();
+    await runRemindersOnce(true); // force run once
     res.json({ ok: true });
   } catch (e) {
     console.error("POST /api/reminders/run-now error:", e.message);
     res.status(500).json({ ok: false, error: e.message });
   }
 });
-
 // ---------------------------
 // Stripe checkout endpoints
 // ---------------------------
