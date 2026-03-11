@@ -684,6 +684,45 @@ app.post("/api/admin/cleanup-trialing-no-stripe", requireAdmin, (req, res) => {
     return res.status(500).json({ ok: false, error: e.message });
   }
 });
+// =====================================================
+// ✅ ADMIN: reset an owner's login (sets new loginId + password + phone)
+// Use when customer forgot password / you need access for testing
+// =====================================================
+app.post("/api/admin/reset-owner-login", requireAdmin, async (req, res) => {
+  try {
+    const ownerId = Number(req.body.ownerId || req.query.ownerId || 0);
+    const phone = String(req.body.phone || "").trim();
+    const password = String(req.body.password || "").trim();
+
+    if (!ownerId) return res.status(400).json({ ok: false, error: "ownerId required" });
+    if (!phone) return res.status(400).json({ ok: false, error: "phone required" });
+    if (!password || password.length < 6) {
+      return res.status(400).json({ ok: false, error: "password must be at least 6 characters" });
+    }
+
+    // Ensure owner exists
+    const exists = db.prepare(`SELECT id FROM users WHERE id=?`).get(ownerId);
+    if (!exists) return res.status(404).json({ ok: false, error: `Owner ${ownerId} not found` });
+
+    // New loginId
+    const loginId = `MLR${String(Date.now()).slice(-8)}`;
+    const hashed = await hashPassword(password);
+
+    db.prepare(`
+      UPDATE users
+      SET loginId = ?,
+          password = ?,
+          phone = ?,
+          updatedAt = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(loginId, hashed, phone, ownerId);
+
+    return res.json({ ok: true, ownerId, loginId });
+  } catch (e) {
+    console.error("POST /api/admin/reset-owner-login error:", e.message);
+    return res.status(500).json({ ok: false, error: e.message });
+  }
+});
 
 // =====================================================
 // ✅ Debug (ADMIN ONLY)
