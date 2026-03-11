@@ -723,7 +723,75 @@ app.post("/api/admin/reset-owner-login", requireAdmin, async (req, res) => {
     return res.status(500).json({ ok: false, error: e.message });
   }
 });
+// =====================================================
+// ✅ ADMIN: list users (for support / onboarding)
+// GET /api/admin/users?limit=50&q=...   (admin only)
+// =====================================================
+app.get("/api/admin/users", requireAdmin, (req, res) => {
+  try {
+    const limit = Math.min(Math.max(Number(req.query.limit || 50), 1), 200);
+    const q = String(req.query.q || "").trim();
 
+    let rows;
+    if (q) {
+      const like = `%${q}%`;
+      rows = db
+        .prepare(
+          `
+          SELECT
+            id,
+            loginId,
+            phone,
+            subscription_status,
+            plan_name,
+            stripe_customer_id,
+            stripe_subscription_id,
+            stripe_price_id,
+            stripe_checkout_session_id,
+            activatedAt,
+            createdAt,
+            updatedAt
+          FROM users
+          WHERE loginId LIKE ?
+             OR phone LIKE ?
+             OR plan_name LIKE ?
+             OR subscription_status LIKE ?
+          ORDER BY id DESC
+          LIMIT ?
+        `
+        )
+        .all(like, like, like, like, limit);
+    } else {
+      rows = db
+        .prepare(
+          `
+          SELECT
+            id,
+            loginId,
+            phone,
+            subscription_status,
+            plan_name,
+            stripe_customer_id,
+            stripe_subscription_id,
+            stripe_price_id,
+            stripe_checkout_session_id,
+            activatedAt,
+            createdAt,
+            updatedAt
+          FROM users
+          ORDER BY id DESC
+          LIMIT ?
+        `
+        )
+        .all(limit);
+    }
+
+    return res.json({ ok: true, count: rows.length, users: rows });
+  } catch (e) {
+    console.error("GET /api/admin/users error:", e.message);
+    return res.status(500).json({ ok: false, error: e.message });
+  }
+});
 // =====================================================
 // ✅ Debug (ADMIN ONLY)
 // =====================================================
