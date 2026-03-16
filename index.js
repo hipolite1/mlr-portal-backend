@@ -684,6 +684,7 @@ app.post("/api/admin/cleanup-trialing-no-stripe", requireAdmin, (req, res) => {
     return res.status(500).json({ ok: false, error: e.message });
   }
 });
+
 // =====================================================
 // ✅ ADMIN: reset an owner's login (sets new loginId + password + phone)
 // Use when customer forgot password / you need access for testing
@@ -723,6 +724,7 @@ app.post("/api/admin/reset-owner-login", requireAdmin, async (req, res) => {
     return res.status(500).json({ ok: false, error: e.message });
   }
 });
+
 // =====================================================
 // ✅ ADMIN: list users (for support / onboarding)
 // GET /api/admin/users?limit=50&q=...   (admin only)
@@ -792,6 +794,77 @@ app.get("/api/admin/users", requireAdmin, (req, res) => {
     return res.status(500).json({ ok: false, error: e.message });
   }
 });
+
+// =====================================================
+// ✅ ADMIN: deactivate user
+// POST /api/admin/users/:id/deactivate?admin_key=...
+// =====================================================
+app.post("/api/admin/users/:id/deactivate", requireAdmin, (req, res) => {
+  try {
+    const userId = Number(req.params.id);
+    if (!userId) {
+      return res.status(400).json({ ok: false, error: "Invalid user id" });
+    }
+
+    const info = db
+      .prepare(
+        `
+        UPDATE users
+        SET subscription_status = 'inactive',
+            updatedAt = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `
+      )
+      .run(userId);
+
+    if (info.changes === 0) {
+      return res.status(404).json({ ok: false, error: "User not found" });
+    }
+
+    return res.json({ ok: true, message: "User deactivated", userId });
+  } catch (e) {
+    console.error("POST /api/admin/users/:id/deactivate error:", e.message);
+    return res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// =====================================================
+// ✅ ADMIN: delete user
+// DELETE /api/admin/users/:id?admin_key=...
+// Deletes related pickups first, then deletes user
+// =====================================================
+app.delete("/api/admin/users/:id", requireAdmin, (req, res) => {
+  try {
+    const userId = Number(req.params.id);
+    if (!userId) {
+      return res.status(400).json({ ok: false, error: "Invalid user id" });
+    }
+
+    const user = db.prepare(`SELECT id, loginId FROM users WHERE id = ?`).get(userId);
+    if (!user) {
+      return res.status(404).json({ ok: false, error: "User not found" });
+    }
+
+    // delete related pickups first (canonical schema uses owner_id)
+    db.prepare(`DELETE FROM pickups WHERE owner_id = ?`).run(userId);
+
+    const info = db.prepare(`DELETE FROM users WHERE id = ?`).run(userId);
+    if (info.changes === 0) {
+      return res.status(404).json({ ok: false, error: "User not found" });
+    }
+
+    return res.json({
+      ok: true,
+      message: "User deleted",
+      userId,
+      loginId: user.loginId,
+    });
+  } catch (e) {
+    console.error("DELETE /api/admin/users/:id error:", e.message);
+    return res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 // =====================================================
 // ✅ Debug (ADMIN ONLY)
 // =====================================================
@@ -1102,10 +1175,10 @@ async function runRemindersOnce(force = false) {
     }
   }
 }
+
 // =====================================================
 // ✅ REMINDER SCHEDULER + ADMIN RUN-NOW
 // =====================================================
-
 if (RUN_REMINDERS) {
   const CRON_EXPR = process.env.REMINDER_CRON || "*/10 * * * *";
   cron.schedule(CRON_EXPR, () => runRemindersOnce(false));
@@ -1124,6 +1197,7 @@ app.post("/api/reminders/run-now", requireAdmin, async (req, res) => {
     res.status(500).json({ ok: false, error: e.message });
   }
 });
+
 // ---------------------------
 // Stripe checkout endpoints
 // ---------------------------

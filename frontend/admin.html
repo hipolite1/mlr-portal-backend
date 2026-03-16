@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>MLR Admin</title>
+  <title>MLR Admin v2</title>
   <style>
     :root{
       --brand:#1e90ff;--brand-600:#1778d0;--brand-700:#0f5ca2;
@@ -17,7 +17,7 @@
       color:var(--text);
       font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Arial,sans-serif;
     }
-    .wrap{max-width:1200px;margin:0 auto;padding:24px}
+    .wrap{max-width:1280px;margin:0 auto;padding:24px}
     .topbar{
       display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;
       margin-bottom:18px;
@@ -58,6 +58,15 @@
     .btn-danger{
       color:#fff;background:var(--danger);border-color:transparent;
     }
+    .btn-warning{
+      color:#fff;background:var(--warning);border-color:transparent;
+    }
+    .btn-small{
+      min-height:34px;
+      padding:7px 10px;
+      font-size:13px;
+      border-radius:10px;
+    }
     .muted{color:var(--muted)}
     .status{
       margin-top:12px;
@@ -85,7 +94,7 @@
     table{
       width:100%;
       border-collapse:collapse;
-      min-width:900px;
+      min-width:1200px;
     }
     th,td{
       text-align:left;
@@ -97,7 +106,7 @@
     th{
       position:sticky;top:0;background:#f8fafc;font-size:.9rem;
     }
-    td.notes{white-space:normal;min-width:220px}
+    .actions-cell{white-space:normal}
     .badge{
       display:inline-block;padding:4px 8px;border-radius:999px;font-size:12px;font-weight:800;
       border:1px solid var(--border);background:#fff;
@@ -106,7 +115,7 @@
     .active{background:#ecfdf5;color:#166534;border-color:#bbf7d0}
     .inactive{background:#f8fafc;color:#475569;border-color:#cbd5e1}
     .empty{padding:18px;color:var(--muted)}
-    .hidden{display:none}
+    .btn-group{display:flex;gap:8px;flex-wrap:wrap}
     @media (max-width:768px){
       .wrap{padding:14px}
       .input.wide{min-width:100%}
@@ -117,8 +126,8 @@
   <div class="wrap">
     <div class="topbar">
       <div>
-        <h1>MLR Admin</h1>
-        <div class="sub">Latest 50 users • local search • admin key protected</div>
+        <h1>MLR Admin v2</h1>
+        <div class="sub">Latest 50 users • search • deactivate • delete • admin key protected</div>
       </div>
       <div class="row">
         <span class="pill">Admin Page</span>
@@ -128,8 +137,8 @@
     <div class="card" style="margin-bottom:16px;">
       <div class="row">
         <input id="adminKey" class="input wide" type="password" placeholder="Enter Admin Key" autocomplete="off" />
-        <button id="saveKeyBtn" class="btn btn-primary">Save Key</button>
-        <button id="clearKeyBtn" class="btn btn-danger">Clear Key</button>
+        <button id="saveKeyBtn" class="btn btn-primary">Login Admin</button>
+        <button id="logoutBtn" class="btn btn-danger">Logout Admin</button>
       </div>
       <div id="status" class="status"></div>
     </div>
@@ -142,7 +151,7 @@
       </div>
 
       <div class="table-wrap">
-        <table id="usersTable">
+        <table>
           <thead>
             <tr>
               <th>ID</th>
@@ -154,10 +163,11 @@
               <th>Stripe Subscription</th>
               <th>Price ID</th>
               <th>Created</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody id="usersTbody">
-            <tr><td colspan="9" class="empty">Enter your Admin Key, then click Save Key.</td></tr>
+            <tr><td colspan="10" class="empty">Enter your Admin Key, then click Login Admin.</td></tr>
           </tbody>
         </table>
       </div>
@@ -165,19 +175,18 @@
   </div>
 
   <script>
-    // If your endpoint path is different, only change this line.
-    const API_URL = "/api/admin/users";
+    const API_USERS = "/api/admin/users";
+    const KEY_NAME = "MLR_ADMIN_KEY";
+    let allUsers = [];
 
     const adminKeyInput = document.getElementById("adminKey");
     const saveKeyBtn = document.getElementById("saveKeyBtn");
-    const clearKeyBtn = document.getElementById("clearKeyBtn");
+    const logoutBtn = document.getElementById("logoutBtn");
     const refreshBtn = document.getElementById("refreshBtn");
     const searchBox = document.getElementById("searchBox");
     const usersTbody = document.getElementById("usersTbody");
     const statusBox = document.getElementById("status");
     const resultCount = document.getElementById("resultCount");
-
-    let allUsers = [];
 
     function showStatus(message, type = "ok") {
       statusBox.textContent = message;
@@ -190,15 +199,15 @@
     }
 
     function getAdminKey() {
-      return sessionStorage.getItem("MLR_ADMIN_KEY") || "";
+      return sessionStorage.getItem(KEY_NAME) || "";
     }
 
     function setAdminKey(key) {
-      sessionStorage.setItem("MLR_ADMIN_KEY", key);
+      sessionStorage.setItem(KEY_NAME, key);
     }
 
     function clearAdminKey() {
-      sessionStorage.removeItem("MLR_ADMIN_KEY");
+      sessionStorage.removeItem(KEY_NAME);
     }
 
     function esc(value) {
@@ -231,7 +240,7 @@
 
     function renderRows(users) {
       if (!users.length) {
-        usersTbody.innerHTML = `<tr><td colspan="9" class="empty">No users found.</td></tr>`;
+        usersTbody.innerHTML = `<tr><td colspan="10" class="empty">No users found.</td></tr>`;
         resultCount.textContent = "0 users";
         return;
       }
@@ -247,6 +256,12 @@
           <td>${esc(u.stripe_subscription_id ?? "")}</td>
           <td>${esc(u.stripe_price_id ?? "")}</td>
           <td>${esc(fmtDate(u.createdAt ?? u.created_at ?? ""))}</td>
+          <td class="actions-cell">
+            <div class="btn-group">
+              <button class="btn btn-small btn-warning" onclick="deactivateUser(${Number(u.id)})">Deactivate</button>
+              <button class="btn btn-small btn-danger" onclick="deleteUser(${Number(u.id)}, '${esc(u.loginId ?? u.login_id ?? "")}')">Delete</button>
+            </div>
+          </td>
         </tr>
       `).join("");
 
@@ -289,9 +304,7 @@
       }
 
       try {
-        const url = `${API_URL}?admin_key=${encodeURIComponent(key)}&limit=50`;
-        const res = await fetch(url, { method: "GET" });
-
+        const res = await fetch(`${API_USERS}?admin_key=${encodeURIComponent(key)}&limit=50`);
         if (!res.ok) {
           const text = await res.text();
           throw new Error(`Request failed (${res.status}). ${text}`);
@@ -308,6 +321,63 @@
       }
     }
 
+    async function deactivateUser(userId) {
+      const key = getAdminKey();
+      if (!key) {
+        showStatus("Admin Key missing. Login again.", "err");
+        return;
+      }
+
+      const yes = window.confirm(`Deactivate user ID ${userId}? This will set subscription_status to inactive.`);
+      if (!yes) return;
+
+      try {
+        const res = await fetch(`/api/admin/users/${userId}/deactivate?admin_key=${encodeURIComponent(key)}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" }
+        });
+
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data.error || `Deactivate failed (${res.status})`);
+        }
+
+        showStatus(`User ${userId} deactivated successfully.`, "ok");
+        await loadUsers();
+      } catch (err) {
+        showStatus(err.message || "Deactivate failed.", "err");
+      }
+    }
+
+    async function deleteUser(userId, loginId) {
+      const key = getAdminKey();
+      if (!key) {
+        showStatus("Admin Key missing. Login again.", "err");
+        return;
+      }
+
+      const yes = window.confirm(
+        `Delete user ${loginId || userId}?\n\nThis is permanent and may also remove related pickups.`
+      );
+      if (!yes) return;
+
+      try {
+        const res = await fetch(`/api/admin/users/${userId}?admin_key=${encodeURIComponent(key)}`, {
+          method: "DELETE"
+        });
+
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data.error || `Delete failed (${res.status})`);
+        }
+
+        showStatus(`User ${loginId || userId} deleted successfully.`, "ok");
+        await loadUsers();
+      } catch (err) {
+        showStatus(err.message || "Delete failed.", "err");
+      }
+    }
+
     saveKeyBtn.addEventListener("click", async () => {
       const key = adminKeyInput.value.trim();
       if (!key) {
@@ -319,19 +389,18 @@
       await loadUsers();
     });
 
-    clearKeyBtn.addEventListener("click", () => {
+    logoutBtn.addEventListener("click", () => {
       clearAdminKey();
       adminKeyInput.value = "";
       allUsers = [];
-      usersTbody.innerHTML = `<tr><td colspan="9" class="empty">Admin Key cleared.</td></tr>`;
+      usersTbody.innerHTML = `<tr><td colspan="10" class="empty">Logged out. Enter your Admin Key to continue.</td></tr>`;
       resultCount.textContent = "0 users";
-      showStatus("Admin Key cleared from this browser session.", "ok");
+      showStatus("Logged out successfully.", "ok");
     });
 
     refreshBtn.addEventListener("click", loadUsers);
     searchBox.addEventListener("input", applySearch);
 
-    // Auto-load if key already saved in session
     if (getAdminKey()) {
       loadUsers();
     }
