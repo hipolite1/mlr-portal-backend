@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>MLR Admin</title>
+  <style>
+    :root{
+      --brand:#1e90ff;--brand-600:#1778d0;--brand-700:#0f5ca2;
+      --text:#0f172a;--muted:#475569;--border:#e2e8f0;--bg:#f8fafc;--card:#fff;
+      --danger:#dc2626;--success:#16a34a;--warning:#d97706;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      background:var(--bg);
+      color:var(--text);
+      font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Arial,sans-serif;
+    }
+    .wrap{max-width:1200px;margin:0 auto;padding:24px}
+    .topbar{
+      display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;
+      margin-bottom:18px;
+    }
+    h1{margin:0;font-size:1.6rem}
+    .sub{color:var(--muted);margin:4px 0 0}
+    .card{
+      background:var(--card);
+      border:1px solid var(--border);
+      border-radius:16px;
+      box-shadow:0 6px 24px rgba(2,6,23,.05);
+      padding:18px;
+    }
+    .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+    .input, .btn{
+      min-height:42px;
+      border-radius:12px;
+      border:1px solid var(--border);
+      padding:10px 12px;
+      font:inherit;
+    }
+    .input{background:#fff;min-width:220px}
+    .input.wide{flex:1;min-width:280px}
+    .btn{
+      background:#fff;
+      cursor:pointer;
+      font-weight:700;
+    }
+    .btn:hover{border-color:var(--brand)}
+    .btn-primary{
+      color:#fff;
+      border-color:transparent;
+      background:linear-gradient(180deg,var(--brand),var(--brand-600));
+    }
+    .btn-primary:hover{
+      background:linear-gradient(180deg,var(--brand-600),var(--brand-700));
+    }
+    .btn-danger{
+      color:#fff;background:var(--danger);border-color:transparent;
+    }
+    .muted{color:var(--muted)}
+    .status{
+      margin-top:12px;
+      padding:10px 12px;
+      border-radius:12px;
+      display:none;
+      font-weight:600;
+    }
+    .status.show{display:block}
+    .status.ok{background:#ecfdf5;color:var(--success);border:1px solid #bbf7d0}
+    .status.err{background:#fef2f2;color:var(--danger);border:1px solid #fecaca}
+    .toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+    .pill{
+      display:inline-flex;align-items:center;
+      padding:6px 10px;border-radius:999px;
+      background:#eff6ff;color:var(--brand-700);border:1px solid #bfdbfe;
+      font-size:12px;font-weight:800;letter-spacing:.02em;
+    }
+    .table-wrap{
+      overflow:auto;
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:#fff;
+    }
+    table{
+      width:100%;
+      border-collapse:collapse;
+      min-width:900px;
+    }
+    th,td{
+      text-align:left;
+      padding:12px 10px;
+      border-bottom:1px solid var(--border);
+      vertical-align:top;
+      white-space:nowrap;
+    }
+    th{
+      position:sticky;top:0;background:#f8fafc;font-size:.9rem;
+    }
+    td.notes{white-space:normal;min-width:220px}
+    .badge{
+      display:inline-block;padding:4px 8px;border-radius:999px;font-size:12px;font-weight:800;
+      border:1px solid var(--border);background:#fff;
+    }
+    .trialing{background:#eff6ff;color:#1d4ed8;border-color:#bfdbfe}
+    .active{background:#ecfdf5;color:#166534;border-color:#bbf7d0}
+    .inactive{background:#f8fafc;color:#475569;border-color:#cbd5e1}
+    .empty{padding:18px;color:var(--muted)}
+    .hidden{display:none}
+    @media (max-width:768px){
+      .wrap{padding:14px}
+      .input.wide{min-width:100%}
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="topbar">
+      <div>
+        <h1>MLR Admin</h1>
+        <div class="sub">Latest 50 users • local search • admin key protected</div>
+      </div>
+      <div class="row">
+        <span class="pill">Admin Page</span>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px;">
+      <div class="row">
+        <input id="adminKey" class="input wide" type="password" placeholder="Enter Admin Key" autocomplete="off" />
+        <button id="saveKeyBtn" class="btn btn-primary">Save Key</button>
+        <button id="clearKeyBtn" class="btn btn-danger">Clear Key</button>
+      </div>
+      <div id="status" class="status"></div>
+    </div>
+
+    <div class="card">
+      <div class="toolbar">
+        <input id="searchBox" class="input wide" type="text" placeholder="Search by login ID, phone, plan, status, stripe ID..." />
+        <button id="refreshBtn" class="btn">Refresh</button>
+        <span id="resultCount" class="muted">0 users</span>
+      </div>
+
+      <div class="table-wrap">
+        <table id="usersTable">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Login ID</th>
+              <th>Phone</th>
+              <th>Status</th>
+              <th>Plan</th>
+              <th>Stripe Customer</th>
+              <th>Stripe Subscription</th>
+              <th>Price ID</th>
+              <th>Created</th>
+            </tr>
+          </thead>
+          <tbody id="usersTbody">
+            <tr><td colspan="9" class="empty">Enter your Admin Key, then click Save Key.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // If your endpoint path is different, only change this line.
+    const API_URL = "/api/admin/users";
+
+    const adminKeyInput = document.getElementById("adminKey");
+    const saveKeyBtn = document.getElementById("saveKeyBtn");
+    const clearKeyBtn = document.getElementById("clearKeyBtn");
+    const refreshBtn = document.getElementById("refreshBtn");
+    const searchBox = document.getElementById("searchBox");
+    const usersTbody = document.getElementById("usersTbody");
+    const statusBox = document.getElementById("status");
+    const resultCount = document.getElementById("resultCount");
+
+    let allUsers = [];
+
+    function showStatus(message, type = "ok") {
+      statusBox.textContent = message;
+      statusBox.className = `status show ${type}`;
+    }
+
+    function hideStatus() {
+      statusBox.className = "status";
+      statusBox.textContent = "";
+    }
+
+    function getAdminKey() {
+      return sessionStorage.getItem("MLR_ADMIN_KEY") || "";
+    }
+
+    function setAdminKey(key) {
+      sessionStorage.setItem("MLR_ADMIN_KEY", key);
+    }
+
+    function clearAdminKey() {
+      sessionStorage.removeItem("MLR_ADMIN_KEY");
+    }
+
+    function esc(value) {
+      return String(value ?? "").replace(/[&<>"']/g, ch => ({
+        "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
+      }[ch]));
+    }
+
+    function fmtDate(value) {
+      if (!value) return "";
+      const d = new Date(value);
+      if (Number.isNaN(d.getTime())) return String(value);
+      return d.toLocaleString();
+    }
+
+    function statusBadge(status) {
+      const s = String(status || "").toLowerCase();
+      let cls = "inactive";
+      if (s === "trialing") cls = "trialing";
+      else if (s === "active") cls = "active";
+      return `<span class="badge ${cls}">${esc(status || "—")}</span>`;
+    }
+
+    function normalizeUsers(payload) {
+      if (Array.isArray(payload)) return payload;
+      if (payload && Array.isArray(payload.users)) return payload.users;
+      if (payload && Array.isArray(payload.data)) return payload.data;
+      return [];
+    }
+
+    function renderRows(users) {
+      if (!users.length) {
+        usersTbody.innerHTML = `<tr><td colspan="9" class="empty">No users found.</td></tr>`;
+        resultCount.textContent = "0 users";
+        return;
+      }
+
+      usersTbody.innerHTML = users.map(u => `
+        <tr>
+          <td>${esc(u.id ?? "")}</td>
+          <td>${esc(u.loginId ?? u.login_id ?? "")}</td>
+          <td>${esc(u.phone ?? "")}</td>
+          <td>${statusBadge(u.subscription_status)}</td>
+          <td>${esc(u.plan_name ?? "")}</td>
+          <td>${esc(u.stripe_customer_id ?? "")}</td>
+          <td>${esc(u.stripe_subscription_id ?? "")}</td>
+          <td>${esc(u.stripe_price_id ?? "")}</td>
+          <td>${esc(fmtDate(u.createdAt ?? u.created_at ?? ""))}</td>
+        </tr>
+      `).join("");
+
+      resultCount.textContent = `${users.length} user${users.length === 1 ? "" : "s"}`;
+    }
+
+    function applySearch() {
+      const q = searchBox.value.trim().toLowerCase();
+      if (!q) {
+        renderRows(allUsers);
+        return;
+      }
+
+      const filtered = allUsers.filter(u => {
+        const hay = [
+          u.id,
+          u.loginId, u.login_id,
+          u.phone,
+          u.subscription_status,
+          u.plan_name,
+          u.stripe_customer_id,
+          u.stripe_subscription_id,
+          u.stripe_price_id,
+          u.createdAt, u.created_at
+        ].join(" ").toLowerCase();
+
+        return hay.includes(q);
+      });
+
+      renderRows(filtered);
+    }
+
+    async function loadUsers() {
+      hideStatus();
+
+      const key = getAdminKey();
+      if (!key) {
+        showStatus("Enter your Admin Key first.", "err");
+        return;
+      }
+
+      try {
+        const url = `${API_URL}?admin_key=${encodeURIComponent(key)}&limit=50`;
+        const res = await fetch(url, { method: "GET" });
+
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(`Request failed (${res.status}). ${text}`);
+        }
+
+        const data = await res.json();
+        allUsers = normalizeUsers(data);
+        renderRows(allUsers);
+        showStatus("Users loaded successfully.", "ok");
+      } catch (err) {
+        allUsers = [];
+        renderRows([]);
+        showStatus(err.message || "Failed to load users.", "err");
+      }
+    }
+
+    saveKeyBtn.addEventListener("click", async () => {
+      const key = adminKeyInput.value.trim();
+      if (!key) {
+        showStatus("Please enter your Admin Key.", "err");
+        return;
+      }
+      setAdminKey(key);
+      adminKeyInput.value = "";
+      await loadUsers();
+    });
+
+    clearKeyBtn.addEventListener("click", () => {
+      clearAdminKey();
+      adminKeyInput.value = "";
+      allUsers = [];
+      usersTbody.innerHTML = `<tr><td colspan="9" class="empty">Admin Key cleared.</td></tr>`;
+      resultCount.textContent = "0 users";
+      showStatus("Admin Key cleared from this browser session.", "ok");
+    });
+
+    refreshBtn.addEventListener("click", loadUsers);
+    searchBox.addEventListener("input", applySearch);
+
+    // Auto-load if key already saved in session
+    if (getAdminKey()) {
+      loadUsers();
+    }
+  </script>
+</body>
+</html>
