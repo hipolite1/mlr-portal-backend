@@ -263,6 +263,14 @@ function planToPriceId(planKey) {
   return null;
 }
 
+function displayPlanName(planKey) {
+  const plan = String(planKey || "").toLowerCase();
+  if (plan === "single") return "Starter";
+  if (plan === "growth") return "Growth";
+  if (plan === "pro") return "Pro";
+  return planKey || null;
+}
+
 function updateUserStripeCheckoutSuccess({
   ownerId,
   customerId = null,
@@ -396,7 +404,8 @@ app.post(
               : session.subscription?.id || null;
 
           const priceId = session?.metadata?.price_id || null;
-          const planName = session?.metadata?.plan || null;
+          const planKey = session?.metadata?.plan || null;
+          const planName = displayPlanName(planKey);
 
           let appStatus = "active";
           let periodEnd = null;
@@ -461,7 +470,8 @@ app.post(
           const subscriptionId = String(sub.id);
           const stripeStatus = String(sub.status || "");
           const priceId = sub?.items?.data?.[0]?.price?.id || null;
-          const planName = sub?.metadata?.plan || null;
+          const planKey = sub?.metadata?.plan || null;
+          const planName = displayPlanName(planKey);
           const periodEnd = sub.current_period_end != null ? Number(sub.current_period_end) : null;
 
           updateUserStripeSubscriptionStatus({
