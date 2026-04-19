@@ -80,6 +80,15 @@ const DB_PATH = process.env.DB_PATH || "./users.db";
 const db = new Database(DB_PATH);
 
 // ---------------------------
+// Reminder timing config
+// ---------------------------
+const DEFAULT_REMINDER_TIMEZONE =
+  String(process.env.DEFAULT_REMINDER_TIMEZONE || "America/Toronto").trim() ||
+  "America/Toronto";
+const REMINDER_LOCAL_HOUR = Number(process.env.REMINDER_LOCAL_HOUR || 9);
+const REMINDER_CRON = process.env.REMINDER_CRON || "* * * * *";
+
+// ---------------------------
 // Generic table helpers
 // ---------------------------
 function tableExists(name) {
@@ -99,6 +108,47 @@ function addColIfMissing(table, colDefSql) {
     db.exec(`ALTER TABLE ${table} ADD COLUMN ${colDefSql}`);
     console.log(`✅ Added column ${table}.${colName}`);
   }
+}
+
+function normalizeTimezone(raw) {
+  const tz = String(raw || "").trim() || DEFAULT_REMINDER_TIMEZONE;
+  try {
+    new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(new Date());
+    return tz;
+  } catch {
+    return DEFAULT_REMINDER_TIMEZONE;
+  }
+}
+
+function getLocalDateTimeInTimezone(date, timezone) {
+  const tz = normalizeTimezone(timezone);
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+
+  const map = {};
+  for (const p of parts) {
+    if (p.type !== "literal") map[p.type] = p.value;
+  }
+
+  return {
+    timezone: tz,
+    date: `${map.year}-${map.month}-${map.day}`,
+    hour: Number(map.hour),
+    minute: Number(map.minute),
+    second: Number(map.second || 0),
+  };
+}
+
+function isReminderSendTime(localNow) {
+  return localNow.hour === REMINDER_LOCAL_HOUR && localNow.minute === 0;
 }
 
 // ---------------------------
@@ -123,6 +173,11 @@ addColIfMissing("users", "plan_name TEXT");
 addColIfMissing("users", "subscription_current_period_end INTEGER");
 addColIfMissing("users", "activatedAt DATETIME");
 addColIfMissing("users", "updatedAt DATETIME");
+addColIfMissing("users", "timezone TEXT");
+
+db.prepare(
+  `UPDATE users SET timezone = ? WHERE timezone IS NULL OR TRIM(timezone) = ''`
+).run(DEFAULT_REMINDER_TIMEZONE);
 
 // =====================================================
 // ✅ Pickups table: canonical + migrations
@@ -186,7 +241,11 @@ function ensureCanonicalPickups() {
 
       const ownerExpr = legacyCols.includes("owner_id") ? "owner_id" : "NULL";
       const nameExpr = coalesceExpr(legacyCols, ["customer_name", "name", "customerName"], "''");
-      const phoneExpr = coalesceExpr(legacyCols, ["customer_phone", "phone", "customerPhone"], "''");
+      const phoneExpr = coalesceExpr(
+        legacyCols,
+        ["customer_phone", "phone", "customerPhone"],
+        "''"
+      );
       const dueExpr = coalesceExpr(legacyCols, ["due_date", "dueDate", "due"], "''");
       const statusExpr = legacyCols.includes("status")
         ? "COALESCE(status,'pending')"
@@ -194,8 +253,8 @@ function ensureCanonicalPickups() {
       const createdExpr = legacyCols.includes("createdAt")
         ? "createdAt"
         : legacyCols.includes("created_at")
-        ? "created_at"
-        : "CURRENT_TIMESTAMP";
+          ? "created_at"
+          : "CURRENT_TIMESTAMP";
 
       const sql = `
         INSERT INTO pickups (owner_id, customer_name, customer_phone, due_date, status, createdAt)
@@ -375,7 +434,6 @@ app.post(
     const signature = req.headers["stripe-signature"];
     if (!signature) return res.status(400).send("Missing Stripe-Signature header");
 
-    // ✅ Always sanitize secret right here (removes spaces/newlines/quotes)
     const webhookSecret = sanitizeWebhookSecret(process.env.STRIPE_WEBHOOK_SECRET);
     if (!webhookSecret) {
       console.error("❌ STRIPE_WEBHOOK_SECRET missing");
@@ -644,7 +702,7 @@ app.get("/api/mark-trial", requireAdmin, (req, res) => {
     const row = db
       .prepare(
         `
-      SELECT id, loginId, phone, subscription_status,
+      SELECT id, loginId, phone, timezone, subscription_status,
              stripe_customer_id, stripe_subscription_id, plan_name,
              subscription_current_period_end
       FROM users
@@ -658,6 +716,7 @@ app.get("/api/mark-trial", requireAdmin, (req, res) => {
       ownerId: row.id,
       loginId: row.loginId,
       phone: row.phone,
+      timezone: row.timezone,
       subscription_status: row.subscription_status,
       stripe_customer_id: row.stripe_customer_id,
       stripe_subscription_id: row.stripe_subscription_id,
@@ -711,11 +770,9 @@ app.post("/api/admin/reset-owner-login", requireAdmin, async (req, res) => {
       return res.status(400).json({ ok: false, error: "password must be at least 6 characters" });
     }
 
-    // Ensure owner exists
     const exists = db.prepare(`SELECT id FROM users WHERE id=?`).get(ownerId);
     if (!exists) return res.status(404).json({ ok: false, error: `Owner ${ownerId} not found` });
 
-    // New loginId
     const loginId = `MLR${String(Date.now()).slice(-8)}`;
     const hashed = await hashPassword(password);
 
@@ -754,6 +811,7 @@ app.get("/api/admin/users", requireAdmin, (req, res) => {
             id,
             loginId,
             phone,
+            timezone,
             subscription_status,
             plan_name,
             stripe_customer_id,
@@ -768,11 +826,12 @@ app.get("/api/admin/users", requireAdmin, (req, res) => {
              OR phone LIKE ?
              OR plan_name LIKE ?
              OR subscription_status LIKE ?
+             OR timezone LIKE ?
           ORDER BY id DESC
           LIMIT ?
         `
         )
-        .all(like, like, like, like, limit);
+        .all(like, like, like, like, like, limit);
     } else {
       rows = db
         .prepare(
@@ -781,6 +840,7 @@ app.get("/api/admin/users", requireAdmin, (req, res) => {
             id,
             loginId,
             phone,
+            timezone,
             subscription_status,
             plan_name,
             stripe_customer_id,
@@ -801,6 +861,42 @@ app.get("/api/admin/users", requireAdmin, (req, res) => {
     return res.json({ ok: true, count: rows.length, users: rows });
   } catch (e) {
     console.error("GET /api/admin/users error:", e.message);
+    return res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// =====================================================
+// ✅ ADMIN: update user timezone
+// POST /api/admin/users/:id/timezone?admin_key=...
+// body: { "timezone": "America/New_York" }
+// =====================================================
+app.post("/api/admin/users/:id/timezone", requireAdmin, (req, res) => {
+  try {
+    const userId = Number(req.params.id);
+    const timezone = normalizeTimezone(req.body.timezone || req.query.timezone);
+
+    if (!userId) {
+      return res.status(400).json({ ok: false, error: "Invalid user id" });
+    }
+
+    const info = db
+      .prepare(
+        `
+        UPDATE users
+        SET timezone = ?,
+            updatedAt = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `
+      )
+      .run(timezone, userId);
+
+    if (info.changes === 0) {
+      return res.status(404).json({ ok: false, error: "User not found" });
+    }
+
+    return res.json({ ok: true, userId, timezone });
+  } catch (e) {
+    console.error("POST /api/admin/users/:id/timezone error:", e.message);
     return res.status(500).json({ ok: false, error: e.message });
   }
 });
@@ -855,7 +951,6 @@ app.delete("/api/admin/users/:id", requireAdmin, (req, res) => {
       return res.status(404).json({ ok: false, error: "User not found" });
     }
 
-    // delete related pickups first (canonical schema uses owner_id)
     db.prepare(`DELETE FROM pickups WHERE owner_id = ?`).run(userId);
 
     const info = db.prepare(`DELETE FROM users WHERE id = ?`).run(userId);
@@ -886,7 +981,7 @@ app.get("/api/debug/user-status", requireAdmin, (req, res) => {
     const row = db
       .prepare(
         `
-      SELECT id, loginId, phone, subscription_status,
+      SELECT id, loginId, phone, timezone, subscription_status,
              stripe_customer_id, stripe_subscription_id,
              stripe_checkout_session_id, stripe_price_id, plan_name,
              subscription_current_period_end,
@@ -949,6 +1044,9 @@ app.post("/api/create-account", async (req, res) => {
     const phone = String(req.body.phone || "").trim();
     const password = String(req.body.password || "").trim();
     const ownerId = Number(req.body.ownerId || req.query.ownerId || 0);
+    const timezone = normalizeTimezone(
+      req.body.timezone || req.query.timezone || DEFAULT_REMINDER_TIMEZONE
+    );
 
     if (!phone || !password)
       return res.status(400).json({ ok: false, error: "phone and password are required" });
@@ -964,20 +1062,22 @@ app.post("/api/create-account", async (req, res) => {
       if (!exists) return res.status(400).json({ ok: false, error: "ownerId not found" });
 
       db.prepare(
-        `UPDATE users SET loginId=?, password=?, phone=?, updatedAt=CURRENT_TIMESTAMP WHERE id=?`
-      ).run(loginId, hashed, phone, ownerId);
+        `UPDATE users
+         SET loginId=?, password=?, phone=?, timezone=?, updatedAt=CURRENT_TIMESTAMP
+         WHERE id=?`
+      ).run(loginId, hashed, phone, timezone, ownerId);
 
-      return res.json({ ok: true, ownerId, loginId });
+      return res.json({ ok: true, ownerId, loginId, timezone });
     }
 
     const info = db
       .prepare(
-        `INSERT INTO users (loginId, password, phone, subscription_status, updatedAt)
-         VALUES (?, ?, ?, 'inactive', CURRENT_TIMESTAMP)`
+        `INSERT INTO users (loginId, password, phone, timezone, subscription_status, updatedAt)
+         VALUES (?, ?, ?, ?, 'inactive', CURRENT_TIMESTAMP)`
       )
-      .run(loginId, hashed, phone);
+      .run(loginId, hashed, phone, timezone);
 
-    return res.json({ ok: true, ownerId: Number(info.lastInsertRowid), loginId });
+    return res.json({ ok: true, ownerId: Number(info.lastInsertRowid), loginId, timezone });
   } catch (e) {
     console.error("POST /api/create-account error:", e.message);
     return res.status(400).json({ ok: false, error: e.message || "Create failed" });
@@ -997,7 +1097,7 @@ app.post("/api/login", async (req, res) => {
     const row = db
       .prepare(
         `
-      SELECT id, loginId, password, subscription_status,
+      SELECT id, loginId, password, phone, timezone, subscription_status,
              stripe_customer_id, stripe_subscription_id, plan_name
       FROM users
       WHERE loginId = ?
@@ -1014,6 +1114,8 @@ app.post("/api/login", async (req, res) => {
       ok: true,
       ownerId: row.id,
       loginId: row.loginId,
+      phone: row.phone,
+      timezone: row.timezone,
       subscription_status: row.subscription_status,
       stripe_customer_id: row.stripe_customer_id,
       stripe_subscription_id: row.stripe_subscription_id,
@@ -1036,7 +1138,9 @@ app.post("/api/pickups", requireActive, (req, res) => {
     const dueDate = String(req.body.dueDate || "").trim();
 
     if (!ownerId || !name || !phone || !dueDate) {
-      return res.status(400).json({ ok: false, error: "ownerId, name, phone, dueDate are required" });
+      return res
+        .status(400)
+        .json({ ok: false, error: "ownerId, name, phone, dueDate are required" });
     }
 
     const info = db
@@ -1120,10 +1224,6 @@ const TWILIO_NUMBER = process.env.TWILIO_NUMBER;
 const twilioClient =
   TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN ? twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN) : null;
 
-function todayUTC() {
-  return new Date().toISOString().slice(0, 10);
-}
-
 function buildReminderMessage(pickup) {
   const nm = pickup.customer_name || "there";
   return `MyLaundryReminder: Hi ${nm}, your items are ready for pickup. Due date: ${pickup.due_date}. Please pick up today.`;
@@ -1134,7 +1234,8 @@ async function sendReminderSms(to, body) {
     console.log("🟡 SEND_SMS=false — would send to:", to, "msg:", body);
     return { skipped: true };
   }
-  if (!to || !String(to).trim()) throw new Error('Required parameter "to" missing (customer_phone).');
+  if (!to || !String(to).trim())
+    throw new Error('Required parameter "to" missing (customer_phone).');
   if (!twilioClient || !TWILIO_NUMBER) {
     throw new Error("Twilio not configured (TWILIO_ACCOUNT_SID/TWILIO_AUTH_TOKEN/TWILIO_NUMBER)");
   }
@@ -1147,39 +1248,78 @@ async function runRemindersOnce(force = false) {
     console.log("🟡 RUN_REMINDERS=false — reminder job not running.");
     return;
   }
-  const today = todayUTC();
+
+  const now = new Date();
 
   const rows = db
     .prepare(
       `
-    SELECT p.id, p.owner_id, p.customer_name, p.customer_phone, p.due_date, p.status, p.last_reminder_sent
+    SELECT
+      p.id,
+      p.owner_id,
+      p.customer_name,
+      p.customer_phone,
+      p.due_date,
+      p.status,
+      p.last_reminder_sent,
+      u.timezone
     FROM pickups p
     JOIN users u ON u.id = p.owner_id
     WHERE u.subscription_status IN ('trialing','active')
       AND p.status = 'pending'
-      AND p.due_date <= ?
-      AND (p.last_reminder_sent IS NULL OR p.last_reminder_sent <> ?)
       AND p.customer_phone IS NOT NULL AND p.customer_phone <> ''
       AND p.customer_name  IS NOT NULL AND p.customer_name  <> ''
     ORDER BY p.id ASC
-    LIMIT 50
+    LIMIT 500
   `
     )
-    .all(today, today);
+    .all();
 
   if (rows.length === 0) {
-    console.log(`✅ Reminder job: no pickups to remind (today=${today}).`);
+    if (force) console.log("✅ Reminder job: no pickups found.");
     return;
   }
 
-  console.log(`🚀 Reminder job: ${rows.length} pickup(s) eligible (today=${today}).`);
+  const eligible = [];
 
   for (const p of rows) {
+    const localNow = getLocalDateTimeInTimezone(now, p.timezone);
+    const dueDate = String(p.due_date || "").trim();
+    const lastReminderSent = String(p.last_reminder_sent || "").trim();
+
+    const isDueTodayOrEarlier = !!dueDate && dueDate <= localNow.date;
+    const notSentToday = lastReminderSent !== localNow.date;
+    const isSendTime = force ? true : isReminderSendTime(localNow);
+
+    if (isDueTodayOrEarlier && notSentToday && isSendTime) {
+      eligible.push({
+        ...p,
+        localDate: localNow.date,
+        timezone: localNow.timezone,
+        localHour: localNow.hour,
+        localMinute: localNow.minute,
+      });
+    }
+  }
+
+  if (eligible.length === 0) {
+    if (force) console.log("✅ Reminder job: no pickups eligible right now.");
+    return;
+  }
+
+  console.log(`🚀 Reminder job: ${eligible.length} pickup(s) eligible.`);
+
+  for (const p of eligible) {
     try {
       const body = buildReminderMessage(p);
       await sendReminderSms(p.customer_phone, body);
-      db.prepare(`UPDATE pickups SET last_reminder_sent = ? WHERE id = ?`).run(today, p.id);
-      console.log(`✅ Reminded pickup #${p.id} -> ${p.customer_phone}`, SEND_SMS ? "" : "(skipped)");
+      db.prepare(`UPDATE pickups SET last_reminder_sent = ? WHERE id = ?`).run(p.localDate, p.id);
+      console.log(
+        `✅ Reminded pickup #${p.id} -> ${p.customer_phone} (${p.timezone} ${String(
+          p.localHour
+        ).padStart(2, "0")}:${String(p.localMinute).padStart(2, "0")})`,
+        SEND_SMS ? "" : "(skipped)"
+      );
     } catch (e) {
       console.error(`❌ Reminder failed for pickup #${p.id}:`, e.message);
     }
@@ -1190,17 +1330,17 @@ async function runRemindersOnce(force = false) {
 // ✅ REMINDER SCHEDULER + ADMIN RUN-NOW
 // =====================================================
 if (RUN_REMINDERS) {
-  const CRON_EXPR = process.env.REMINDER_CRON || "*/10 * * * *";
-  cron.schedule(CRON_EXPR, () => runRemindersOnce(false));
-  console.log(`⏱️ Reminder cron enabled: "${CRON_EXPR}" (RUN_REMINDERS=true)`);
+  cron.schedule(REMINDER_CRON, () => runRemindersOnce(false));
+  console.log(
+    `⏱️ Reminder cron enabled: "${REMINDER_CRON}" (RUN_REMINDERS=true, local send hour=${REMINDER_LOCAL_HOUR})`
+  );
 } else {
   console.log("🟡 Reminder cron disabled (RUN_REMINDERS=false)");
 }
 
-// ✅ Admin run-now should work even when RUN_REMINDERS=false
 app.post("/api/reminders/run-now", requireAdmin, async (req, res) => {
   try {
-    await runRemindersOnce(true); // force run once
+    await runRemindersOnce(true);
     res.json({ ok: true });
   } catch (e) {
     console.error("POST /api/reminders/run-now error:", e.message);
@@ -1227,7 +1367,7 @@ app.post("/stripe/create-checkout-session", async (req, res) => {
       client_reference_id: String(ownerId),
       metadata: { owner_id: String(ownerId), plan: String(plan), price_id: String(priceId) },
       subscription_data: {
-        trial_period_days: 30,
+        trial_period_days: 15,
         metadata: { owner_id: String(ownerId), plan: String(plan) },
       },
     });
@@ -1257,10 +1397,10 @@ app.get("/stripe/checkout", (req, res) => {
     try {
       const info = db
         .prepare(
-          `INSERT INTO users (loginId, password, phone, subscription_status, updatedAt)
-           VALUES (?, ?, ?, 'inactive', CURRENT_TIMESTAMP)`
+          `INSERT INTO users (loginId, password, phone, timezone, subscription_status, updatedAt)
+           VALUES (?, ?, ?, ?, 'inactive', CURRENT_TIMESTAMP)`
         )
-        .run(autoLoginId, autoPass, autoPhone);
+        .run(autoLoginId, autoPass, autoPhone, DEFAULT_REMINDER_TIMEZONE);
       ownerId = Number(info.lastInsertRowid);
     } catch (err) {
       console.error("Owner create error:", err?.message || err);
@@ -1276,7 +1416,7 @@ app.get("/stripe/checkout", (req, res) => {
         client_reference_id: String(ownerId),
         metadata: { owner_id: String(ownerId), plan: planKey, price_id: String(priceId) },
         subscription_data: {
-          trial_period_days: 30,
+          trial_period_days: 15,
           metadata: { owner_id: String(ownerId), plan: planKey },
         },
       })
